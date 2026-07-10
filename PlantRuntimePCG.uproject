@@ -12,6 +12,10 @@
 	],
 	"Plugins": [
 		{
+			"Name": "AdaptiveEnvironment",
+			"Enabled": true
+		},
+		{
 			"Name": "ModelingToolsEditorMode",
 			"Enabled": true,
 			"TargetAllowList": [

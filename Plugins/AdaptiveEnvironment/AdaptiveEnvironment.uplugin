@@ -1,0 +1,27 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "0.1.0",
+	"FriendlyName": "Adaptive Environment",
+	"Description": "Runtime adaptive environment systems driven by player behaviour.",
+	"Category": "Procedural Content Generation",
+	"CreatedBy": "PlantRuntimePCG",
+	"CanContainContent": true,
+	"IsBetaVersion": true,
+	"Installed": false,
+	"Modules": [
+		{
+			"Name": "AdaptiveEnvRuntime",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		},
+		{
+			"Name": "AdaptiveEnvTests",
+			"Type": "DeveloperTool",
+			"LoadingPhase": "PostEngineInit",
+			"TargetAllowList": [
+				"Editor"
+			]
+		}
+	]
+}
