@@ -38,7 +38,7 @@ bool FAESettingsDefaultsTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("Grid width is positive"), Settings->GridWidth > 0);
 	TestTrue(TEXT("Grid height is positive"), Settings->GridHeight > 0);
 	TestTrue(TEXT("Cell size is positive"), Settings->CellSizeCm > 0.0f);
-	TestEqual(TEXT("Settings schema"), Settings->SettingsSchemaVersion, 1);
+	TestEqual(TEXT("Settings schema"), Settings->SettingsSchemaVersion, 2);
 	return true;
 }
 

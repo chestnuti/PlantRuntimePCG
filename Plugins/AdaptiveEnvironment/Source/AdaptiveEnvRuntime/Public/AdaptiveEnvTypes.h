@@ -38,6 +38,29 @@ enum class EAESynthesisMethod : uint8
 	ManualCalibration
 };
 
+UENUM(BlueprintType)
+enum class EAEBehaviourSubmitResult : uint8
+{
+	Accepted,
+	InvalidAgent,
+	InvalidLocation,
+	InvalidTimestamp,
+	InvalidTag,
+	DuplicateSequence,
+	OutOfOrder
+};
+
+UENUM(BlueprintType)
+enum class EAEHeatmapDebugMode : uint8
+{
+	None,
+	PassCount,
+	TravelDistance,
+	DwellTime,
+	SmoothedActivity,
+	Flow
+};
+
 USTRUCT(BlueprintType)
 struct ADAPTIVEENVRUNTIME_API FAEBehaviourSample
 {
@@ -45,6 +68,9 @@ struct ADAPTIVEENVRUNTIME_API FAEBehaviourSample
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Behaviour")
 	FGuid AgentId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Behaviour")
+	FVector PreviousWorldLocation = FVector::ZeroVector;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Behaviour")
 	FVector WorldLocation = FVector::ZeroVector;
@@ -59,10 +85,103 @@ struct ADAPTIVEENVRUNTIME_API FAEBehaviourSample
 	float DeltaSeconds = 0.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Behaviour", meta = (ClampMin = "0.0"))
+	float TravelDistanceMeters = 0.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Behaviour", meta = (ClampMin = "0.0"))
 	float EventIntensity = 1.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Behaviour")
+	int64 SequenceNumber = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Behaviour")
+	bool bHasPreviousLocation = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Behaviour")
 	FGameplayTag BehaviourTag;
+};
+
+USTRUCT(BlueprintType)
+struct ADAPTIVEENVRUNTIME_API FAEHeatmapGridConfig
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Grid")
+	FVector2D WorldCenter = FVector2D::ZeroVector;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Grid")
+	FIntPoint Dimensions = FIntPoint(128, 128);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Grid", meta = (ClampMin = "1.0"))
+	float CellSizeCm = 100.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Grid", meta = (ClampMin = "0"))
+	int32 KernelRadiusCells = 1;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Grid", meta = (ClampMin = "0.01"))
+	float KernelSigma = 0.75f;
+};
+
+USTRUCT(BlueprintType)
+struct ADAPTIVEENVRUNTIME_API FAEBehaviourCellSnapshot
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Grid")
+	FIntPoint Coordinate = FIntPoint::ZeroValue;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Grid")
+	FVector WorldCenter = FVector::ZeroVector;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Behaviour")
+	float PassCount = 0.0f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Behaviour")
+	float TravelDistanceMeters = 0.0f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Behaviour")
+	float DwellSeconds = 0.0f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Behaviour")
+	float SprintDistanceMeters = 0.0f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Behaviour")
+	float CollectEventCount = 0.0f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Behaviour")
+	float CombatEventCount = 0.0f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Behaviour")
+	FVector2D FlowDirection = FVector2D::ZeroVector;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Behaviour")
+	float FlowMagnitude = 0.0f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Behaviour")
+	float SmoothedActivity = 0.0f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Behaviour")
+	double LastUpdatedTime = 0.0;
+};
+
+USTRUCT(BlueprintType)
+struct ADAPTIVEENVRUNTIME_API FAEBehaviourGridStats
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Statistics")
+	int64 AcceptedSampleCount = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Statistics")
+	int64 RejectedSampleCount = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Statistics")
+	int64 DuplicateSampleCount = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Statistics")
+	int64 OutOfOrderSampleCount = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Statistics")
+	int64 OutOfBoundsSampleCount = 0;
 };
 
 USTRUCT(BlueprintType)
