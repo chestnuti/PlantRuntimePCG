@@ -12,6 +12,7 @@
 
 namespace AdaptiveEnvM1Tests
 {
+	// Build a compact deterministic grid for unit tests.
 	FAEHeatmapGridConfig MakeGridConfig()
 	{
 		FAEHeatmapGridConfig Config;
@@ -23,6 +24,7 @@ namespace AdaptiveEnvM1Tests
 		return Config;
 	}
 
+	// Build a minimal ordered behaviour sample for test scenarios.
 	FAEBehaviourSample MakeSample(
 		const FGuid& AgentId,
 		const int64 Sequence,
@@ -44,11 +46,14 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	"AdaptiveEnv.M1.GridMapping",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
+// Verify half-open world bounds and row-major coordinate mapping.
 bool FAEGridMappingTest::RunTest(const FString& Parameters)
 {
+	// Initialize a four-by-four grid centred at the origin.
 	FAEHeatmapGrid Grid;
 	TestTrue(TEXT("Grid initializes"), Grid.Initialize(AdaptiveEnvM1Tests::MakeGridConfig()));
 
+	// Check included lower bounds, excluded upper bounds, and outside points.
 	FIntPoint Coordinate;
 	TestTrue(TEXT("Lower boundary is included"), Grid.WorldToCell(FVector(-200.0, -200.0, 0.0), Coordinate));
 	TestEqual(TEXT("Lower boundary coordinate"), Coordinate, FIntPoint(0, 0));
@@ -58,6 +63,7 @@ bool FAEGridMappingTest::RunTest(const FString& Parameters)
 	TestFalse(TEXT("Upper Y boundary is excluded"), Grid.WorldToCell(FVector(0.0, 200.0, 0.0), Coordinate));
 	TestFalse(TEXT("Outside point is rejected"), Grid.WorldToCell(FVector(-201.0, 0.0, 0.0), Coordinate));
 
+	// Verify flat indexing and world-space cell centres.
 	int32 Index = INDEX_NONE;
 	TestTrue(TEXT("Coordinate maps to index"), Grid.CellToIndex(FIntPoint(2, 1), Index));
 	TestEqual(TEXT("Flattened index"), Index, 6);
@@ -70,12 +76,15 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	"AdaptiveEnv.M1.BehaviourAggregation",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
+// Verify movement, pass, dwell, flow, and ordering aggregation.
 bool FAEBehaviourAggregationTest::RunTest(const FString& Parameters)
 {
+	// Initialize a deterministic grid and agent identity.
 	FAEHeatmapGrid Grid;
 	Grid.Initialize(AdaptiveEnvM1Tests::MakeGridConfig());
 	const FGuid AgentId = FGuid::NewGuid();
 
+	// Seed initial occupancy without adding movement distance.
 	FAEBehaviourSample First = AdaptiveEnvM1Tests::MakeSample(
 		AgentId,
 		0,
@@ -83,6 +92,7 @@ bool FAEBehaviourAggregationTest::RunTest(const FString& Parameters)
 		AdaptiveEnvGameplayTags::Behaviour_Move.GetTag());
 	TestEqual(TEXT("First sample accepted"), Grid.AccumulateSample(First), EAEBehaviourSubmitResult::Accepted);
 
+	// Move across four cells and provide the conserved distance total.
 	FAEBehaviourSample Move = AdaptiveEnvM1Tests::MakeSample(
 		AgentId,
 		1,
@@ -94,6 +104,7 @@ bool FAEBehaviourAggregationTest::RunTest(const FString& Parameters)
 	Move.TravelDistanceMeters = 3.0f;
 	TestEqual(TEXT("Movement sample accepted"), Grid.AccumulateSample(Move), EAEBehaviourSubmitResult::Accepted);
 
+	// Sum every cell to verify distance, pass, flow, and dirty invariants.
 	float TotalDistance = 0.0f;
 	float TotalPasses = 0.0f;
 	int32 FlowCellCount = 0;
@@ -117,6 +128,7 @@ bool FAEBehaviourAggregationTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("Movement creates flow"), FlowCellCount > 0);
 	TestTrue(TEXT("Dirty cells are unique"), Grid.GetDirtyCellIndices().Num() <= 16);
 
+	// Add dwell time at the final occupied position.
 	FAEBehaviourSample Dwell = AdaptiveEnvM1Tests::MakeSample(
 		AgentId,
 		2,
@@ -130,6 +142,7 @@ bool FAEBehaviourAggregationTest::RunTest(const FString& Parameters)
 	Grid.GetCellSnapshotAtWorldLocation(Dwell.WorldLocation, DwellCell);
 	TestTrue(TEXT("Dwell time accumulates"), FMath::IsNearlyEqual(DwellCell.DwellSeconds, 0.1f));
 
+	// Verify rejected samples cannot mutate the grid revision.
 	const uint64 RevisionBeforeDuplicate = Grid.GetBehaviourRevision();
 	TestEqual(TEXT("Duplicate is rejected"), Grid.AccumulateSample(Dwell), EAEBehaviourSubmitResult::DuplicateSequence);
 	TestEqual(TEXT("Duplicate does not change revision"), Grid.GetBehaviourRevision(), RevisionBeforeDuplicate);
@@ -145,8 +158,10 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	"AdaptiveEnv.M1.TrackerSample",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
+// Verify tracker identity, first-sample semantics, and three-dimensional distance.
 bool FAETrackerSampleTest::RunTest(const FString& Parameters)
 {
+	// Create an isolated World, Actor, root component, and tracker.
 	const FName WorldName = MakeUniqueObjectName(GetTransientPackage(), UWorld::StaticClass(), TEXT("AE_M1_TrackerWorld"));
 	UWorld* World = UWorld::CreateWorld(EWorldType::Game, false, WorldName, GetTransientPackage(), true);
 	TestNotNull(TEXT("Temporary world"), World);
@@ -162,9 +177,11 @@ bool FAETrackerSampleTest::RunTest(const FString& Parameters)
 	UAEBehaviourTrackerComponent* Tracker = NewObject<UAEBehaviourTrackerComponent>(Actor);
 	Actor->AddInstanceComponent(Tracker);
 	Tracker->RegisterComponent();
+	// Inject a deterministic agent identity before sampling.
 	const FGuid AgentId = FGuid::NewGuid();
 	Tracker->SetAgentIdForTesting(AgentId);
 
+	// Verify that the first sample has no synthetic previous distance.
 	Actor->SetActorLocation(FVector::ZeroVector);
 	FAEBehaviourSample First;
 	TestTrue(TEXT("First sample captured"), Tracker->CaptureBehaviourSample(0.1, 0.1f, First));
@@ -172,6 +189,7 @@ bool FAETrackerSampleTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("First distance is zero"), First.TravelDistanceMeters, 0.0f);
 	TestEqual(TEXT("First sequence"), First.SequenceNumber, static_cast<int64>(0));
 
+	// Move one metre and verify distance, sequence, and identity continuity.
 	Actor->SetActorLocation(FVector(100.0, 0.0, 0.0));
 	FAEBehaviourSample Second;
 	TestTrue(TEXT("Second sample captured"), Tracker->CaptureBehaviourSample(0.2, 0.1f, Second));
@@ -180,6 +198,7 @@ bool FAETrackerSampleTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("Second sequence"), Second.SequenceNumber, static_cast<int64>(1));
 	TestEqual(TEXT("Agent ID is stable"), Second.AgentId, AgentId);
 
+	// Destroy the transient World after tracker assertions complete.
 	World->DestroyWorld(false);
 	World->RemoveFromRoot();
 	return true;
@@ -190,8 +209,10 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	"AdaptiveEnv.M1.FixedStepScheduler",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
+// Verify fixed-step counts remain independent from render frame rate.
 bool FAEFixedStepSchedulerTest::RunTest(const FString& Parameters)
 {
+	// Create an isolated World and resolve its adaptive subsystem.
 	const FName WorldName = MakeUniqueObjectName(GetTransientPackage(), UWorld::StaticClass(), TEXT("AE_M1_SchedulerWorld"));
 	UWorld* World = UWorld::CreateWorld(EWorldType::Game, false, WorldName, GetTransientPackage(), true);
 	TestNotNull(TEXT("Temporary world"), World);
@@ -202,6 +223,7 @@ bool FAEFixedStepSchedulerTest::RunTest(const FString& Parameters)
 
 	UAEAdaptiveEnvWorldSubsystem* Subsystem = World->GetSubsystem<UAEAdaptiveEnvWorldSubsystem>();
 	TestNotNull(TEXT("Subsystem"), Subsystem);
+	// Verify queue acceptance, duplicate rejection, and rejection statistics.
 	FAEBehaviourSample QueuedSample = AdaptiveEnvM1Tests::MakeSample(
 		FGuid::NewGuid(),
 		0,
@@ -212,12 +234,14 @@ bool FAEFixedStepSchedulerTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("Queue records duplicate"), Subsystem->GetBehaviourGridStats().DuplicateSampleCount, static_cast<int64>(1));
 	Subsystem->ResetBehaviourGrid();
 
+	// Simulate one real second at 60 FPS.
 	for (int32 Frame = 0; Frame < 60; ++Frame)
 	{
 		Subsystem->Tick(1.0f / 60.0f);
 	}
 	TestEqual(TEXT("Ten fixed steps at 60 FPS"), Subsystem->GetProcessedBehaviourStepCount(), static_cast<int64>(10));
 
+	// Simulate one real second at 120 FPS.
 	Subsystem->ResetBehaviourGrid();
 	for (int32 Frame = 0; Frame < 120; ++Frame)
 	{
@@ -225,6 +249,7 @@ bool FAEFixedStepSchedulerTest::RunTest(const FString& Parameters)
 	}
 	TestEqual(TEXT("Ten fixed steps at 120 FPS"), Subsystem->GetProcessedBehaviourStepCount(), static_cast<int64>(10));
 
+	// Simulate one real second at 30 FPS.
 	Subsystem->ResetBehaviourGrid();
 	for (int32 Frame = 0; Frame < 30; ++Frame)
 	{
@@ -232,6 +257,7 @@ bool FAEFixedStepSchedulerTest::RunTest(const FString& Parameters)
 	}
 	TestEqual(TEXT("Ten fixed steps at 30 FPS"), Subsystem->GetProcessedBehaviourStepCount(), static_cast<int64>(10));
 
+	// Destroy the transient World after scheduler assertions complete.
 	World->DestroyWorld(false);
 	World->RemoveFromRoot();
 	return true;

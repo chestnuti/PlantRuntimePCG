@@ -4,3 +4,4 @@
 
 #include "CoreMinimal.h"
 
+/** Declares shared types for the PlantRuntimePCG game module. */

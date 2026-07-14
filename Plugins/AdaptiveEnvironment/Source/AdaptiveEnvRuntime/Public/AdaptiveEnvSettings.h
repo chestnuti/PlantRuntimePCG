@@ -10,27 +10,29 @@ class ADAPTIVEENVRUNTIME_API UAdaptiveEnvSettings final : public UDeveloperSetti
 	GENERATED_BODY()
 
 public:
+	/** Creates the project settings section. */
 	UAdaptiveEnvSettings();
 
+	/** Returns the Project Settings category that contains this section. */
 	virtual FName GetCategoryName() const override;
 
 	/** Enables runtime updates in supported worlds. */
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Runtime")
 	bool bEnableRuntime = true;
 
-	/** Controls behaviour sampling frequency. */
+	/** Controls behaviour sampling frequency in samples per second. */
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Runtime", meta = (ClampMin = "1.0", UIMin = "1.0"))
 	float BehaviourSampleRateHz = 10.0f;
 
-	/** Controls evaluation snapshot frequency. */
+	/** Controls evaluation snapshot frequency in snapshots per second. */
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Runtime", meta = (ClampMin = "0.1", UIMin = "0.1"))
 	float EvaluationRateHz = 1.0f;
 
-	/** Defines the initial grid width. */
+	/** Defines the initial grid width in cells. */
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Grid", meta = (ClampMin = "1", UIMin = "1"))
 	int32 GridWidth = 128;
 
-	/** Defines the initial grid height. */
+	/** Defines the initial grid height in cells. */
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Grid", meta = (ClampMin = "1", UIMin = "1"))
 	int32 GridHeight = 128;
 
@@ -46,27 +48,27 @@ public:
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Behaviour", meta = (ClampMin = "1", UIMin = "1"))
 	int32 MaxBehaviourSubstepsPerFrame = 3;
 
-	/** Starts dwell state below this speed. */
+	/** Starts dwell state below this speed in centimetres per second. */
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Behaviour", meta = (ClampMin = "0.0"))
 	float DwellEnterSpeedCmPerSecond = 10.0f;
 
-	/** Ends dwell state above this speed. */
+	/** Ends dwell state above this speed in centimetres per second. */
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Behaviour", meta = (ClampMin = "0.0"))
 	float DwellExitSpeedCmPerSecond = 20.0f;
 
-	/** Marks movement as sprint above this speed. */
+	/** Marks movement as sprint above this speed in centimetres per second. */
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Behaviour", meta = (ClampMin = "0.0"))
 	float SprintSpeedCmPerSecond = 500.0f;
 
-	/** Defines the activity smoothing radius. */
+	/** Defines the activity smoothing radius in cells. */
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Grid", meta = (ClampMin = "0"))
 	int32 ActivityKernelRadiusCells = 1;
 
-	/** Defines the Gaussian activity kernel width. */
+	/** Defines the Gaussian activity kernel standard deviation in cells. */
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Grid", meta = (ClampMin = "0.01"))
 	float ActivityKernelSigma = 0.75f;
 
-	/** Controls debug view refresh frequency. */
+	/** Controls debug view refresh frequency in updates per second. */
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Debug", meta = (ClampMin = "0.1"))
 	float DebugRefreshRateHz = 5.0f;
 
@@ -74,11 +76,11 @@ public:
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Debug", meta = (ClampMin = "1"))
 	int32 MaxDebugCells = 2048;
 
-	/** Limits debug drawing around the renderer owner. */
+	/** Limits debug drawing around the renderer owner in centimetres. */
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Debug", meta = (ClampMin = "0.0"))
 	float DebugDrawRadiusCm = 5000.0f;
 
-	/** Converts real seconds to simulated hours. */
+	/** Defines simulated hours advanced by one real second. */
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Simulation", meta = (ClampMin = "0.0", UIMin = "0.0"))
 	float SimulationHoursPerRealSecond = 6.0f;
 
@@ -86,7 +88,7 @@ public:
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Simulation")
 	int32 DefaultRandomSeed = 1337;
 
-	/** Tracks the settings schema. */
+	/** Identifies the serialized settings schema version. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Version")
 	int32 SettingsSchemaVersion = 2;
 };

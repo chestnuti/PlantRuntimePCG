@@ -2,8 +2,10 @@
 
 #include "AdaptiveEnvGameplayTags.h"
 
+// Validate configuration and allocate a contiguous row-major grid.
 bool FAEHeatmapGrid::Initialize(const FAEHeatmapGridConfig& InConfig)
 {
+	// Reject invalid dimensions, units, or smoothing parameters.
 	if (InConfig.Dimensions.X <= 0
 		|| InConfig.Dimensions.Y <= 0
 		|| !FMath::IsFinite(InConfig.CellSizeCm)
@@ -15,17 +17,20 @@ bool FAEHeatmapGrid::Initialize(const FAEHeatmapGridConfig& InConfig)
 		return false;
 	}
 
+	// Calculate in 64 bits and reject allocations beyond TArray indexing.
 	const int64 CellCount = static_cast<int64>(InConfig.Dimensions.X) * InConfig.Dimensions.Y;
 	if (CellCount <= 0 || CellCount > MAX_int32)
 	{
 		return false;
 	}
 
+	// Derive the lower-left world origin from the configured grid centre.
 	Config = InConfig;
 	const FVector2D Extent(
 		static_cast<double>(Config.Dimensions.X) * Config.CellSizeCm * 0.5,
 		static_cast<double>(Config.Dimensions.Y) * Config.CellSizeCm * 0.5);
 	WorldMin = Config.WorldCenter - Extent;
+	// Allocate cells and clear all derived tracking state.
 	Cells.SetNumZeroed(static_cast<int32>(CellCount));
 	DirtyFlags.Init(false, Cells.Num());
 	DirtyCellIndices.Reset();
@@ -35,13 +40,16 @@ bool FAEHeatmapGrid::Initialize(const FAEHeatmapGridConfig& InConfig)
 	return true;
 }
 
+// Clear cell values and all per-agent aggregation state.
 void FAEHeatmapGrid::Reset()
 {
+	// Restore every allocated cell without changing grid configuration.
 	for (FAEBehaviourCellData& Cell : Cells)
 	{
 		Cell = FAEBehaviourCellData();
 	}
 
+	// Reset dirty tracking, ordering guards, revision, and statistics.
 	DirtyFlags.Init(false, Cells.Num());
 	DirtyCellIndices.Reset();
 	AgentStates.Reset();
@@ -49,6 +57,7 @@ void FAEHeatmapGrid::Reset()
 	Stats = FAEBehaviourGridStats();
 }
 
+// Build the half-open world XY bounds from origin and dimensions.
 FBox2D FAEHeatmapGrid::GetWorldBounds() const
 {
 	const FVector2D Size(
@@ -57,13 +66,16 @@ FBox2D FAEHeatmapGrid::GetWorldBounds() const
 	return FBox2D(WorldMin, WorldMin + Size);
 }
 
+// Convert a world XY position to a validated integer cell coordinate.
 bool FAEHeatmapGrid::WorldToCell(const FVector& WorldLocation, FIntPoint& OutCoordinate) const
 {
+	// Reject unavailable grids and invalid positions before arithmetic.
 	if (!IsValid() || WorldLocation.ContainsNaN())
 	{
 		return false;
 	}
 
+	// Floor relative coordinates so upper bounds remain excluded.
 	const int32 X = FMath::FloorToInt((WorldLocation.X - WorldMin.X) / Config.CellSizeCm);
 	const int32 Y = FMath::FloorToInt((WorldLocation.Y - WorldMin.Y) / Config.CellSizeCm);
 	const FIntPoint Coordinate(X, Y);
@@ -77,6 +89,7 @@ bool FAEHeatmapGrid::WorldToCell(const FVector& WorldLocation, FIntPoint& OutCoo
 	return true;
 }
 
+// Flatten a valid XY coordinate into row-major storage.
 bool FAEHeatmapGrid::CellToIndex(const FIntPoint& Coordinate, int32& OutIndex) const
 {
 	if (Coordinate.X < 0
@@ -91,6 +104,7 @@ bool FAEHeatmapGrid::CellToIndex(const FIntPoint& Coordinate, int32& OutIndex) c
 	return Cells.IsValidIndex(OutIndex);
 }
 
+// Convert a cell coordinate to its world-space centre at ground Z.
 FVector FAEHeatmapGrid::GetCellWorldCenter(const FIntPoint& Coordinate) const
 {
 	return FVector(
@@ -99,10 +113,13 @@ FVector FAEHeatmapGrid::GetCellWorldCenter(const FIntPoint& Coordinate) const
 		0.0);
 }
 
+// Validate and aggregate one sample into raw grid metrics.
 EAEBehaviourSubmitResult FAEHeatmapGrid::AccumulateSample(const FAEBehaviourSample& Sample)
 {
+	// Raw grid mutation is restricted to the Game Thread.
 	check(IsInGameThread());
 
+	// Validate sample values before updating statistics or agent state.
 	EAEBehaviourSubmitResult ValidationResult = EAEBehaviourSubmitResult::Accepted;
 	if (!ValidateSample(Sample, ValidationResult))
 	{
@@ -118,6 +135,7 @@ EAEBehaviourSubmitResult FAEHeatmapGrid::AccumulateSample(const FAEBehaviourSamp
 		return ValidationResult;
 	}
 
+	// Enforce accepted sequence and timestamp ordering for this agent.
 	FAgentState& AgentState = AgentStates.FindOrAdd(Sample.AgentId);
 	if (AgentState.bHasSequence)
 	{
@@ -135,14 +153,17 @@ EAEBehaviourSubmitResult FAEHeatmapGrid::AccumulateSample(const FAEBehaviourSamp
 		}
 	}
 
+	// Commit ordering state after all rejection checks pass.
 	AgentState.LastSequenceNumber = Sample.SequenceNumber;
 	AgentState.LastTimestamp = Sample.Timestamp;
 	AgentState.bHasSequence = true;
 	++Stats.AcceptedSampleCount;
 
+	// Route discrete events, first observations, and movement segments separately.
 	bool bChangedGrid = false;
 	if (IsEventTag(Sample.BehaviourTag))
 	{
+		// Apply a discrete event only to the cell containing its position.
 		FIntPoint Coordinate;
 		if (WorldToCell(Sample.WorldLocation, Coordinate))
 		{
@@ -158,6 +179,7 @@ EAEBehaviourSubmitResult FAEHeatmapGrid::AccumulateSample(const FAEBehaviourSamp
 	}
 	else if (!Sample.bHasPreviousLocation)
 	{
+		// Use the first observation to initialize pass and occupancy state.
 		FIntPoint Coordinate;
 		if (WorldToCell(Sample.WorldLocation, Coordinate))
 		{
@@ -175,6 +197,7 @@ EAEBehaviourSubmitResult FAEHeatmapGrid::AccumulateSample(const FAEBehaviourSamp
 	}
 	else
 	{
+		// Resample the XY segment at half-cell spacing for continuous coverage.
 		const FVector Segment = Sample.WorldLocation - Sample.PreviousWorldLocation;
 		const float DistanceXY = FVector2D(Segment.X, Segment.Y).Size();
 		const float Spacing = FMath::Max(Config.CellSizeCm * 0.5f, 1.0f);
@@ -183,6 +206,7 @@ EAEBehaviourSubmitResult FAEHeatmapGrid::AccumulateSample(const FAEBehaviourSamp
 		const FVector2D DirectionXY = FVector2D(Segment.X, Segment.Y).GetSafeNormal();
 		const bool bAddsFlow = IsFlowTag(Sample.BehaviourTag) && !DirectionXY.IsNearlyZero();
 
+		// Track each cell entry along segment endpoints and sample points.
 		for (int32 PointIndex = 0; PointIndex <= StepCount; ++PointIndex)
 		{
 			const float Alpha = static_cast<float>(PointIndex) / StepCount;
@@ -205,6 +229,7 @@ EAEBehaviourSubmitResult FAEHeatmapGrid::AccumulateSample(const FAEBehaviourSamp
 			}
 		}
 
+		// Allocate equal distance and flow contributions at subsegment midpoints.
 		for (int32 StepIndex = 0; StepIndex < StepCount; ++StepIndex)
 		{
 			const float Alpha = (static_cast<float>(StepIndex) + 0.5f) / StepCount;
@@ -223,6 +248,7 @@ EAEBehaviourSubmitResult FAEHeatmapGrid::AccumulateSample(const FAEBehaviourSamp
 			bChangedGrid = true;
 		}
 
+		// Assign dwell duration to the final occupied cell.
 		if (Sample.BehaviourTag == AdaptiveEnvGameplayTags::Behaviour_Dwell.GetTag())
 		{
 			FIntPoint Coordinate;
@@ -232,12 +258,14 @@ EAEBehaviourSubmitResult FAEHeatmapGrid::AccumulateSample(const FAEBehaviourSamp
 				bChangedGrid = true;
 			}
 		}
+		// Count a fully outside segment once for diagnostics.
 		if (!bChangedGrid)
 		{
 			++Stats.OutOfBoundsSampleCount;
 		}
 	}
 
+	// Increment revision once for an accepted sample that changed any cell.
 	if (bChangedGrid)
 	{
 		++BehaviourRevision;
@@ -245,6 +273,7 @@ EAEBehaviourSubmitResult FAEHeatmapGrid::AccumulateSample(const FAEBehaviourSamp
 	return EAEBehaviourSubmitResult::Accepted;
 }
 
+// Record a sample rejected by the subsystem queue before grid aggregation.
 void FAEHeatmapGrid::RecordRejectedSample(const EAEBehaviourSubmitResult Result)
 {
 	++Stats.RejectedSampleCount;
@@ -258,6 +287,7 @@ void FAEHeatmapGrid::RecordRejectedSample(const EAEBehaviourSubmitResult Result)
 	}
 }
 
+// Copy one valid internal cell into a public snapshot.
 bool FAEHeatmapGrid::GetCellSnapshot(const FIntPoint& Coordinate, FAEBehaviourCellSnapshot& OutSnapshot) const
 {
 	int32 Index = INDEX_NONE;
@@ -269,20 +299,24 @@ bool FAEHeatmapGrid::GetCellSnapshot(const FIntPoint& Coordinate, FAEBehaviourCe
 	return true;
 }
 
+// Resolve a world position and return its public cell snapshot.
 bool FAEHeatmapGrid::GetCellSnapshotAtWorldLocation(const FVector& WorldLocation, FAEBehaviourCellSnapshot& OutSnapshot) const
 {
 	FIntPoint Coordinate;
 	return WorldToCell(WorldLocation, Coordinate) && GetCellSnapshot(Coordinate, OutSnapshot);
 }
 
+// Collect visible non-empty cells within a bounded debug radius.
 void FAEHeatmapGrid::GetNonEmptyCellsInRadius(const FVector& WorldLocation, const float RadiusCm, const int32 MaxCells, TArray<FAEBehaviourCellSnapshot>& OutCells) const
 {
+	// Clear caller output and reject empty budgets.
 	OutCells.Reset();
 	if (MaxCells <= 0)
 	{
 		return;
 	}
 
+	// Scan row-major cells until the output budget is exhausted.
 	const float RadiusSquared = FMath::Square(FMath::Max(RadiusCm, 0.0f));
 	for (int32 Index = 0; Index < Cells.Num() && OutCells.Num() < MaxCells; ++Index)
 	{
@@ -297,6 +331,7 @@ void FAEHeatmapGrid::GetNonEmptyCellsInRadius(const FVector& WorldLocation, cons
 			continue;
 		}
 
+		// Include the cell only when its centre lies inside the XY radius.
 		const FIntPoint Coordinate(Index % Config.Dimensions.X, Index / Config.Dimensions.X);
 		const FVector Center = GetCellWorldCenter(Coordinate);
 		if (FVector2D::DistSquared(FVector2D(Center), FVector2D(WorldLocation)) <= RadiusSquared)
@@ -306,6 +341,7 @@ void FAEHeatmapGrid::GetNonEmptyCellsInRadius(const FVector& WorldLocation, cons
 	}
 }
 
+// Clear dirty flags for cells consumed during the current tick.
 void FAEHeatmapGrid::ClearDirtyCells()
 {
 	for (const int32 Index : DirtyCellIndices)
@@ -318,6 +354,7 @@ void FAEHeatmapGrid::ClearDirtyCells()
 	DirtyCellIndices.Reset();
 }
 
+// Validate sample identity, finite values, ranges, and supported tags.
 bool FAEHeatmapGrid::ValidateSample(const FAEBehaviourSample& Sample, EAEBehaviourSubmitResult& OutResult) const
 {
 	if (!Sample.AgentId.IsValid())
@@ -352,6 +389,7 @@ bool FAEHeatmapGrid::ValidateSample(const FAEBehaviourSample& Sample, EAEBehavio
 	return true;
 }
 
+// Recognize tags that represent continuous movement or dwelling.
 bool FAEHeatmapGrid::IsMovementTag(const FGameplayTag& Tag) const
 {
 	return Tag == AdaptiveEnvGameplayTags::Behaviour_Move.GetTag()
@@ -359,18 +397,21 @@ bool FAEHeatmapGrid::IsMovementTag(const FGameplayTag& Tag) const
 		|| Tag == AdaptiveEnvGameplayTags::Behaviour_Sprint.GetTag();
 }
 
+// Recognize movement tags that contribute a directional flow vector.
 bool FAEHeatmapGrid::IsFlowTag(const FGameplayTag& Tag) const
 {
 	return Tag == AdaptiveEnvGameplayTags::Behaviour_Move.GetTag()
 		|| Tag == AdaptiveEnvGameplayTags::Behaviour_Sprint.GetTag();
 }
 
+// Recognize supported instantaneous event tags.
 bool FAEHeatmapGrid::IsEventTag(const FGameplayTag& Tag) const
 {
 	return Tag == AdaptiveEnvGameplayTags::Behaviour_Collect.GetTag()
 		|| Tag == AdaptiveEnvGameplayTags::Behaviour_Combat.GetTag();
 }
 
+// Add one cell index to the dirty list without duplicates.
 void FAEHeatmapGrid::MarkDirty(const int32 Index)
 {
 	if (DirtyFlags.IsValidIndex(Index) && !DirtyFlags[Index])
@@ -380,13 +421,16 @@ void FAEHeatmapGrid::MarkDirty(const int32 Index)
 	}
 }
 
+// Distribute raw activity across valid neighbours with a normalized Gaussian kernel.
 void FAEHeatmapGrid::AddSmoothedActivity(const FIntPoint& Coordinate, const float Contribution)
 {
+	// Ignore empty contributions before building kernel weights.
 	if (Contribution <= 0.0f)
 	{
 		return;
 	}
 
+	// Store valid neighbour indices and their unnormalized weights inline.
 	struct FWeightedIndex
 	{
 		int32 Index = INDEX_NONE;
@@ -396,6 +440,7 @@ void FAEHeatmapGrid::AddSmoothedActivity(const FIntPoint& Coordinate, const floa
 	TArray<FWeightedIndex, TInlineAllocator<25>> WeightedIndices;
 	float WeightSum = 0.0f;
 	const float SigmaSquared = FMath::Square(Config.KernelSigma);
+	// Calculate weights only for neighbours inside the grid.
 	for (int32 OffsetY = -Config.KernelRadiusCells; OffsetY <= Config.KernelRadiusCells; ++OffsetY)
 	{
 		for (int32 OffsetX = -Config.KernelRadiusCells; OffsetX <= Config.KernelRadiusCells; ++OffsetX)
@@ -417,6 +462,7 @@ void FAEHeatmapGrid::AddSmoothedActivity(const FIntPoint& Coordinate, const floa
 		return;
 	}
 
+	// Normalize weights so the total smoothed contribution is conserved.
 	for (const FWeightedIndex& Item : WeightedIndices)
 	{
 		Cells[Item.Index].SmoothedActivity += Contribution * (Item.Weight / WeightSum);
@@ -424,6 +470,7 @@ void FAEHeatmapGrid::AddSmoothedActivity(const FIntPoint& Coordinate, const floa
 	}
 }
 
+// Apply raw metric deltas and derived smoothed activity to one cell.
 void FAEHeatmapGrid::AddRawContribution(
 	const FIntPoint& Coordinate,
 	const float PassDelta,
@@ -436,12 +483,14 @@ void FAEHeatmapGrid::AddRawContribution(
 	const float FlowWeightDelta,
 	const double Timestamp)
 {
+	// Reject invalid coordinates before mutating contiguous storage.
 	int32 Index = INDEX_NONE;
 	if (!CellToIndex(Coordinate, Index))
 	{
 		return;
 	}
 
+	// Accumulate independent raw facts and the latest timestamp.
 	FAEBehaviourCellData& Cell = Cells[Index];
 	Cell.PassCount += PassDelta;
 	Cell.TravelDistanceMeters += DistanceDelta;
@@ -454,12 +503,15 @@ void FAEHeatmapGrid::AddRawContribution(
 	Cell.LastUpdatedTime = FMath::Max(Cell.LastUpdatedTime, Timestamp);
 	MarkDirty(Index);
 
+	// Smooth a combined debug activity value without altering raw facts.
 	const float ActivityContribution = PassDelta + DistanceDelta + DwellDelta + CollectDelta + CombatDelta;
 	AddSmoothedActivity(Coordinate, ActivityContribution);
 }
 
+// Convert mutable cell storage into an immutable public snapshot.
 FAEBehaviourCellSnapshot FAEHeatmapGrid::MakeSnapshot(const FIntPoint& Coordinate, const int32 Index) const
 {
+	// Copy raw metrics and spatial identity.
 	const FAEBehaviourCellData& Cell = Cells[Index];
 	FAEBehaviourCellSnapshot Snapshot;
 	Snapshot.Coordinate = Coordinate;
@@ -472,6 +524,7 @@ FAEBehaviourCellSnapshot FAEHeatmapGrid::MakeSnapshot(const FIntPoint& Coordinat
 	Snapshot.CombatEventCount = Cell.CombatEventCount;
 	Snapshot.SmoothedActivity = Cell.SmoothedActivity;
 	Snapshot.LastUpdatedTime = Cell.LastUpdatedTime;
+	// Normalize distance-weighted flow only when a stable denominator exists.
 	if (Cell.FlowWeight > UE_SMALL_NUMBER)
 	{
 		const FVector2f AverageFlow = Cell.FlowSum / Cell.FlowWeight;

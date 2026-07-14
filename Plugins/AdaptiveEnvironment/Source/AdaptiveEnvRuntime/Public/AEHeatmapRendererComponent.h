@@ -13,11 +13,15 @@ class ADAPTIVEENVRUNTIME_API UAEHeatmapRendererComponent final : public UActorCo
 	GENERATED_BODY()
 
 public:
+	/** Creates a renderer driven by the World Subsystem debug refresh. */
 	UAEHeatmapRendererComponent();
 
+	/** Registers this renderer with the World Subsystem. */
 	virtual void BeginPlay() override;
+	/** Unregisters this renderer before its owner leaves play. */
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
+	/** Draws visible behaviour cells for the requested duration in seconds. */
 	void RenderDebug(const UAEAdaptiveEnvWorldSubsystem& Subsystem, float DurationSeconds) const;
 
 	/** Selects the displayed behaviour layer. */
@@ -41,5 +45,6 @@ public:
 	float DrawHeightCm = 20.0f;
 
 private:
+	/** Reads the selected debug metric from a cell snapshot. */
 	float GetDisplayValue(const FAEBehaviourCellSnapshot& Snapshot) const;
 };
