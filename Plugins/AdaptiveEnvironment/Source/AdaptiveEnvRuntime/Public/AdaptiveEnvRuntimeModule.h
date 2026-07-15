@@ -2,13 +2,13 @@
 
 #include "Modules/ModuleManager.h"
 
-/** Manages startup and shutdown for the AdaptiveEnvRuntime module. */
+/* Manages startup and shutdown for the AdaptiveEnvRuntime module. */
 class FAdaptiveEnvRuntimeModule final : public IModuleInterface
 {
 public:
-	/** Initializes module-level runtime services. */
+	/* Initializes module-level runtime services. */
 	virtual void StartupModule() override;
 
-	/** Releases module-level runtime services. */
+	/* Releases module-level runtime services. */
 	virtual void ShutdownModule() override;
 };
