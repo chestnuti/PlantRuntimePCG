@@ -61,8 +61,8 @@ bool FAEDataAssetSchemaTest::RunTest(const FString& Parameters)
 	const UAEExperimentConfig* Experiment = NewObject<UAEExperimentConfig>();
 
 	// Assert schema, semantic version, and experiment seed defaults.
-	TestEqual(TEXT("Evidence schema"), Evidence->SchemaVersion, 1);
-	TestEqual(TEXT("Parameter schema"), ParametersAsset->Metadata.SchemaVersion, 1);
+	TestEqual(TEXT("Evidence schema"), Evidence->SchemaVersion, 2);
+	TestEqual(TEXT("Parameter schema"), ParametersAsset->Metadata.SchemaVersion, 2);
 	TestEqual(TEXT("Experiment schema"), Experiment->SchemaVersion, 1);
 	TestEqual(TEXT("Semantic version"), ParametersAsset->Metadata.SemanticVersion, FString(TEXT("1.0.0")));
 	TestEqual(TEXT("Default seed"), Experiment->RandomSeed, 1337);

@@ -14,7 +14,7 @@ class ADAPTIVEENVRUNTIME_API UAELiteratureEvidenceAsset final : public UPrimaryD
 public:
 	/* Identifies the serialized evidence asset schema. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Version")
-	int32 SchemaVersion = 1;
+	int32 SchemaVersion = 2;
 
 	/* Stores bibliographic and study metadata for all cited sources. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Evidence")

@@ -27,6 +27,19 @@ enum class EAEEvidenceType : uint8
 	QualitativeConclusion
 };
 
+/* Selects one deterministic conversion from a raw evidence value to a canonical unit. */
+UENUM(BlueprintType)
+enum class EAETransformationMethod : uint8
+{
+	Identity,
+	PercentToRatio,
+	CentimetersToMeters,
+	HoursToSeconds,
+	PerHourToPerSecond,
+	RangeMidpoint,
+	CustomVersioned
+};
+
 /* Selects the method used to combine evidence contributions. */
 UENUM(BlueprintType)
 enum class EAESynthesisMethod : uint8
@@ -256,6 +269,10 @@ struct ADAPTIVEENVRUNTIME_API FAELiteratureSource
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Evidence")
 	FString DOI;
 
+	/* Stores the DOI of the primary research dataset when it differs from the publication DOI. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Evidence")
+	FString DatasetDOI;
+
 	/* Describes the geographic or controlled study location. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Evidence")
 	FString StudyLocation;
@@ -267,6 +284,18 @@ struct ADAPTIVEENVRUNTIME_API FAELiteratureSource
 	/* Describes the experimental or observational design. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Evidence")
 	FString StudyDesign;
+
+	/* Stores the project-relative path of the primary source file used for extraction. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Evidence")
+	FString SourceFileRelativePath;
+
+	/* Stores the lowercase SHA-256 digest of the primary source file. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Evidence")
+	FString SourceFileSHA256;
+
+	/* Stores the license or access terms governing the source data. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Evidence")
+	FString License;
 
 	/* Stores additional source-level interpretation notes. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Evidence")
@@ -315,9 +344,21 @@ struct ADAPTIVEENVRUNTIME_API FAEEvidenceRecord
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Evidence")
 	FString Species;
 
+	/* Summarizes vegetation, soil, climate, season, treatment, and duration context. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Evidence")
+	FString StudyContext;
+
+	/* Stores the number of experimental units represented by the evidence when reported. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Evidence", meta = (ClampMin = "0"))
+	int32 SampleSize = 0;
+
 	/* Locates the value by page, table, figure, or equation. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Evidence")
 	FString PageOrTable;
+
+	/* Locates the evidence in an external dataset, workbook, row, or field. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Evidence")
+	FString DatasetLocator;
 
 	/* Records extraction assumptions and interpretation details. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Evidence")
@@ -338,9 +379,9 @@ struct ADAPTIVEENVRUNTIME_API FAEEvidenceTransformation
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Transformation")
 	FGuid EvidenceId;
 
-	/* Names the normalization or conversion method. */
+	/* Selects the deterministic normalization or conversion method. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Transformation")
-	FString MethodName;
+	EAETransformationMethod Method = EAETransformationMethod::Identity;
 
 	/* Versions the method implementation or rule. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Transformation")
@@ -366,6 +407,14 @@ struct ADAPTIVEENVRUNTIME_API FAEEvidenceTransformation
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Transformation")
 	double NormalizedValue = 0.0;
 
+	/* Stores the normalized lower bound when the evidence describes a range. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Transformation")
+	double NormalizedMinimum = 0.0;
+
+	/* Stores the normalized upper bound when the evidence describes a range. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Transformation")
+	double NormalizedMaximum = 0.0;
+
 	/* Records assumptions required by the transformation. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Transformation")
 	FString Assumptions;
@@ -389,6 +438,22 @@ struct ADAPTIVEENVRUNTIME_API FAESynthesisContribution
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Synthesis")
 	double NormalizedValue = 0.0;
 
+	/* Stores the canonical unit shared by all included contributions. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Synthesis")
+	FString NormalizedUnit;
+
+	/* Rates how closely the source context matches the target scenario from zero to one. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Synthesis", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float ContextRelevance = 1.0f;
+
+	/* Rates study design and measurement quality from zero to one. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Synthesis", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float StudyQuality = 1.0f;
+
+	/* Rates researcher confidence in extraction and applicability from zero to one. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Synthesis", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float ResearcherConfidence = 1.0f;
+
 	/* Stores the non-negative weight assigned by the selected method. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Synthesis", meta = (ClampMin = "0.0"))
 	double AssignedWeight = 1.0;
@@ -404,6 +469,10 @@ struct ADAPTIVEENVRUNTIME_API FAESynthesisContribution
 	/* Explains why an inactive contribution is excluded. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Synthesis")
 	FString ExclusionReason;
+
+	/* Records the rubric evidence supporting the three compact score components. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Synthesis")
+	FString ScoringNotes;
 };
 
 /* Describes how multiple evidence contributions produce one parameter. */
@@ -424,6 +493,10 @@ struct ADAPTIVEENVRUNTIME_API FAEParameterSynthesis
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Synthesis")
 	FName TargetParameter;
 
+	/* Stores the canonical unit produced by the synthesis. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Synthesis")
+	FString OutputUnit;
+
 	/* Selects the algorithm used to combine contributions. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Synthesis")
 	EAESynthesisMethod Method = EAESynthesisMethod::WeightedMean;
@@ -443,6 +516,18 @@ struct ADAPTIVEENVRUNTIME_API FAEParameterSynthesis
 	/* Stores the value calculated from active contributions. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Synthesis")
 	double ComputedValue = 0.0;
+
+	/* Stores the minimum normalized value among included contributions. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Synthesis")
+	double ComputedMinimum = 0.0;
+
+	/* Stores the maximum normalized value among included contributions. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Synthesis")
+	double ComputedMaximum = 0.0;
+
+	/* Stores the human review state without changing the numeric result. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Synthesis")
+	FString ReviewStatus = TEXT("Draft");
 };
 
 /* Stores one evidence-based parameter and its effective runtime value. */
@@ -451,9 +536,21 @@ struct ADAPTIVEENVRUNTIME_API FAEDerivedParameter
 {
 	GENERATED_BODY()
 
+	/* Uniquely identifies the parameter independently of its display name. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Parameter")
+	FGuid ParameterId;
+
 	/* Names the parameter consumed by runtime systems. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Parameter")
 	FName ParameterName;
+
+	/* Defines the runtime meaning of the parameter. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Parameter")
+	FString Description;
+
+	/* Stores the canonical physical or normalized unit consumed by runtime systems. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Parameter")
+	FString Unit;
 
 	/* Links the parameter to its synthesis record. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Parameter")
@@ -483,6 +580,10 @@ struct ADAPTIVEENVRUNTIME_API FAEDerivedParameter
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Parameter")
 	bool bHasManualAdjustment = false;
 
+	/* Names the explicit calibration or adjustment method when one is applied. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Parameter")
+	FString AdjustmentMethod;
+
 	/* Explains the method and reason for manual calibration. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Parameter")
 	FString AdjustmentReason;
@@ -506,6 +607,10 @@ struct ADAPTIVEENVRUNTIME_API FAEParameterPackageMetadata
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Version")
 	FString ParentVersion;
 
+	/* Stores the UTC creation time of this immutable package version. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Version")
+	FDateTime CreatedAt;
+
 	/* Identifies the researcher or tool that created the package. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Version")
 	FString CreatedBy;
@@ -524,5 +629,5 @@ struct ADAPTIVEENVRUNTIME_API FAEParameterPackageMetadata
 
 	/* Identifies the serialized package schema version. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Version")
-	int32 SchemaVersion = 1;
+	int32 SchemaVersion = 2;
 };
