@@ -4,6 +4,8 @@
 #include "Engine/DeveloperSettings.h"
 #include "AdaptiveEnvSettings.generated.h"
 
+class UAEParameterSynthesisAsset;
+
 UCLASS(Config = AdaptiveEnvironment, DefaultConfig, meta = (DisplayName = "Adaptive Environment"))
 class ADAPTIVEENVRUNTIME_API UAdaptiveEnvSettings final : public UDeveloperSettings
 {
@@ -19,6 +21,14 @@ public:
 	/* Enables runtime updates in supported worlds. */
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Runtime")
 	bool bEnableRuntime = true;
+
+	/* Enables M3 Exposure and ecological response when a valid parameter package is configured. */
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "M3")
+	bool bEnableM3 = true;
+
+	/* References the versioned M2 package that supplies all first-version M3 parameters. */
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "M3")
+	TSoftObjectPtr<UAEParameterSynthesisAsset> M3ParameterPackage;
 
 	/* Controls behaviour sampling frequency in samples per second. */
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Runtime", meta = (ClampMin = "1.0", UIMin = "1.0"))
@@ -90,5 +100,5 @@ public:
 
 	/* Identifies the serialized settings schema version. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Version")
-	int32 SettingsSchemaVersion = 2;
+	int32 SettingsSchemaVersion = 3;
 };

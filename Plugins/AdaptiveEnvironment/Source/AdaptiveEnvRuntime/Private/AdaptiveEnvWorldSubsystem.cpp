@@ -2,6 +2,8 @@
 
 #include "AEBehaviourTrackerComponent.h"
 #include "AEHeatmapRendererComponent.h"
+#include "AEM3ParameterService.h"
+#include "AdaptiveEnvDataAssets.h"
 #include "AdaptiveEnvGameplayTags.h"
 #include "AdaptiveEnvLog.h"
 #include "AdaptiveEnvSettings.h"
@@ -18,6 +20,7 @@ void UAEAdaptiveEnvWorldSubsystem::Initialize(FSubsystemCollectionBase& Collecti
 	bRuntimeEnabled = Settings->bEnableRuntime;
 	BehaviourStepSeconds = 1.0f / FMath::Max(Settings->BehaviourSampleRateHz, 1.0f);
 	MaxBehaviourSubstepsPerFrame = FMath::Max(Settings->MaxBehaviourSubstepsPerFrame, 1);
+	SimulationHoursPerRealSecond = FMath::Max(static_cast<double>(Settings->SimulationHoursPerRealSecond), 0.0);
 
 	// Translate project settings into the grid initialization contract.
 	FAEHeatmapGridConfig GridConfig;
@@ -31,6 +34,30 @@ void UAEAdaptiveEnvWorldSubsystem::Initialize(FSubsystemCollectionBase& Collecti
 	{
 		bRuntimeEnabled = false;
 		UE_LOG(LogAdaptiveEnv, Error, TEXT("Behaviour grid initialization failed."));
+	}
+	if (!ExposureGrid.Initialize(GridConfig))
+	{
+		bRuntimeEnabled = false;
+		UE_LOG(LogAdaptiveEnv, Error, TEXT("M3 grid initialization failed."));
+	}
+
+	// Load M3 parameters without disabling the validated M1 pipeline when no package is published.
+	bM3Enabled = false;
+	if (bRuntimeEnabled && Settings->bEnableM3)
+	{
+		UAEParameterSynthesisAsset* Package = Settings->M3ParameterPackage.LoadSynchronous();
+		if (Package != nullptr)
+		{
+			FString Error;
+			if (!ApplyM3ParameterPackage(Package, Error))
+			{
+				UE_LOG(LogAdaptiveEnv, Error, TEXT("M3 parameter initialization failed. World=%s Error=%s"), *GetNameSafe(GetWorld()), *Error);
+			}
+		}
+		else
+		{
+			UE_LOG(LogAdaptiveEnv, Log, TEXT("M3 disabled because no parameter package is configured. World=%s"), *GetNameSafe(GetWorld()));
+		}
 	}
 
 	UE_LOG(
@@ -66,6 +93,8 @@ void UAEAdaptiveEnvWorldSubsystem::Deinitialize()
 	LastQueuedSequenceByAgent.Reset();
 	LastQueuedTimestampByAgent.Reset();
 	BehaviourGrid.Reset();
+	ExposureGrid.Reset();
+	bM3Enabled = false;
 	Super::Deinitialize();
 }
 
@@ -98,6 +127,7 @@ void UAEAdaptiveEnvWorldSubsystem::Tick(float DeltaTime)
 		BehaviourTimeSeconds += BehaviourStepSeconds;
 		SampleRegisteredTrackers(BehaviourStepSeconds);
 		ProcessPendingSamples();
+		UpdateM3(BehaviourStepSeconds);
 		++ProcessedBehaviourStepCount;
 	}
 
@@ -254,6 +284,7 @@ void UAEAdaptiveEnvWorldSubsystem::ResetBehaviourGrid()
 {
 	// Clear grid data, queues, ordering guards, clocks, and scheduler counters.
 	BehaviourGrid.Reset();
+	ExposureGrid.Reset();
 	PendingSamples.Reset();
 	ProcessingSamples.Reset();
 	LastQueuedSequenceByAgent.Reset();
@@ -270,6 +301,56 @@ void UAEAdaptiveEnvWorldSubsystem::ResetBehaviourGrid()
 			Tracker->ResetSamplingState();
 		}
 	}
+}
+
+/* Validate and atomically apply one complete M3 effective parameter snapshot. */
+bool UAEAdaptiveEnvWorldSubsystem::ApplyM3ParameterPackage(UAEParameterSynthesisAsset* Package, FString& OutError)
+{
+	check(IsInGameThread());
+	OutError.Reset();
+	if (!IsValid(Package))
+	{
+		OutError = TEXT("M3 parameter package is null or invalid.");
+		return false;
+	}
+
+	// Build a temporary snapshot so failure cannot corrupt the currently active contract.
+	FAEM3ParameterSet Candidate;
+	const FAEM3ValidationResult Result = FAEM3ParameterService::BuildParameterSet(*Package, Candidate);
+	if (!Result.IsValid())
+	{
+		OutError = Result.ToString();
+		return false;
+	}
+
+	// Commit at the Game Thread boundary and rebuild derived state from current raw totals.
+	const FString PreviousVersion = M3Parameters.SemanticVersion;
+	const FString PreviousHash = M3Parameters.ContentHash;
+	M3Parameters = MoveTemp(Candidate);
+	bM3Enabled = true;
+	RebuildM3FromCurrentRawGrid();
+	UE_LOG(
+		LogAdaptiveEnv,
+		Log,
+		TEXT("M3 parameter package applied. World=%s OldVersion=%s OldHash=%s NewVersion=%s NewHash=%s"),
+		*GetNameSafe(GetWorld()),
+		*PreviousVersion,
+		*PreviousHash,
+		*M3Parameters.SemanticVersion,
+		*M3Parameters.ContentHash);
+	return true;
+}
+
+/* Forward a coordinate query to the World-owned M3 Grid. */
+bool UAEAdaptiveEnvWorldSubsystem::GetM3Cell(const FIntPoint& Coordinate, FAEM3CellSnapshot& OutSnapshot) const
+{
+	return bM3Enabled && ExposureGrid.GetCellSnapshot(Coordinate, OutSnapshot);
+}
+
+/* Forward a world-position query to the World-owned M3 Grid. */
+bool UAEAdaptiveEnvWorldSubsystem::GetM3CellAtWorldLocation(const FVector& Location, FAEM3CellSnapshot& OutSnapshot) const
+{
+	return bM3Enabled && ExposureGrid.GetCellSnapshotAtWorldLocation(Location, OutSnapshot);
 }
 
 // Forward a bounded debug-cell query to the behaviour grid.
@@ -359,6 +440,61 @@ void UAEAdaptiveEnvWorldSubsystem::ProcessPendingSamples()
 		BehaviourGrid.AccumulateSample(Sample);
 	}
 	ProcessingSamples.Reset();
+}
+
+/* Advance M3 immediately after one fixed-step raw aggregation stage. */
+void UAEAdaptiveEnvWorldSubsystem::UpdateM3(const float StepSeconds)
+{
+	if (!bM3Enabled)
+	{
+		return;
+	}
+
+	// Convert the shared fixed real step into the only M3 simulation-time basis.
+	const double DeltaSimulationHours = static_cast<double>(StepSeconds) * SimulationHoursPerRealSecond;
+	const double SimulationTimeHours = BehaviourTimeSeconds * SimulationHoursPerRealSecond;
+	if (!ExposureGrid.Update(
+		BehaviourGrid,
+		BehaviourGrid.GetDirtyCellIndices(),
+		SimulationTimeHours,
+		DeltaSimulationHours,
+		BehaviourGrid.GetBehaviourRevision(),
+		M3Parameters))
+	{
+		bM3Enabled = false;
+		UE_LOG(LogAdaptiveEnv, Error, TEXT("M3 update failed and was disabled. World=%s BehaviourRevision=%llu"), *GetNameSafe(GetWorld()), BehaviourGrid.GetBehaviourRevision());
+	}
+}
+
+/* Rebuild M3 deterministically from all current cumulative raw Cell totals. */
+void UAEAdaptiveEnvWorldSubsystem::RebuildM3FromCurrentRawGrid()
+{
+	ExposureGrid.Reset();
+	if (!bM3Enabled)
+	{
+		return;
+	}
+
+	// Treat every row-major Cell as dirty so current raw totals are consumed once under the new package.
+	const FIntPoint Dimensions = BehaviourGrid.GetConfig().Dimensions;
+	const int32 CellCount = Dimensions.X * Dimensions.Y;
+	TArray<int32> AllCellIndices;
+	AllCellIndices.Reserve(CellCount);
+	for (int32 Index = 0; Index < CellCount; ++Index)
+	{
+		AllCellIndices.Add(Index);
+	}
+	const double SimulationTimeHours = BehaviourTimeSeconds * SimulationHoursPerRealSecond;
+	if (!ExposureGrid.Update(
+		BehaviourGrid,
+		AllCellIndices,
+		SimulationTimeHours,
+		0.0,
+		BehaviourGrid.GetBehaviourRevision(),
+		M3Parameters))
+	{
+		bM3Enabled = false;
+	}
 }
 
 // Refresh registered debug renderers at an independent configured rate.

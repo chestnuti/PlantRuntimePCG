@@ -1,12 +1,14 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "AEExposureGrid.h"
 #include "AEHeatmapGrid.h"
 #include "Subsystems/WorldSubsystem.h"
 #include "AdaptiveEnvWorldSubsystem.generated.h"
 
 class UAEBehaviourTrackerComponent;
 class UAEHeatmapRendererComponent;
+class UAEParameterSynthesisAsset;
 
 UCLASS()
 class ADAPTIVEENVRUNTIME_API UAEAdaptiveEnvWorldSubsystem final : public UTickableWorldSubsystem
@@ -90,6 +92,30 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Adaptive Environment|Heatmap")
 	void ResetBehaviourGrid();
 
+	/* Returns whether M3 has a complete validated parameter snapshot. */
+	UFUNCTION(BlueprintPure, Category = "Adaptive Environment|M3")
+	bool IsM3Enabled() const { return bM3Enabled; }
+
+	/* Validates and atomically applies one M2 parameter package, then rebuilds M3 from current raw totals. */
+	UFUNCTION(BlueprintCallable, Category = "Adaptive Environment|M3")
+	bool ApplyM3ParameterPackage(UAEParameterSynthesisAsset* Package, FString& OutError);
+
+	/* Reads one M3 Cell by integer XY coordinate. */
+	UFUNCTION(BlueprintPure, Category = "Adaptive Environment|M3")
+	bool GetM3Cell(const FIntPoint& Coordinate, FAEM3CellSnapshot& OutSnapshot) const;
+
+	/* Reads one M3 Cell containing a world position in centimetres. */
+	UFUNCTION(BlueprintPure, Category = "Adaptive Environment|M3")
+	bool GetM3CellAtWorldLocation(const FVector& Location, FAEM3CellSnapshot& OutSnapshot) const;
+
+	/* Returns the latest global M3 Exposure revision. */
+	UFUNCTION(BlueprintPure, Category = "Adaptive Environment|M3")
+	int64 GetExposureRevision() const { return static_cast<int64>(ExposureGrid.GetExposureRevision()); }
+
+	/* Returns the latest global M3 ecological response revision. */
+	UFUNCTION(BlueprintPure, Category = "Adaptive Environment|M3")
+	int64 GetEcologicalResponseRevision() const { return static_cast<int64>(ExposureGrid.GetResponseRevision()); }
+
 	/* Collects non-empty cells around a world position for debug drawing. */
 	void GetDebugCells(const FVector& Location, float RadiusCm, int32 MaxCells, TArray<FAEBehaviourCellSnapshot>& OutCells) const;
 
@@ -104,6 +130,10 @@ private:
 	void SampleRegisteredTrackers(float StepSeconds);
 	/* Sorts and aggregates the currently queued sample batch. */
 	void ProcessPendingSamples();
+	/* Advances Exposure and ecological response after raw aggregation for one fixed step. */
+	void UpdateM3(float StepSeconds);
+	/* Rebuilds M3 once from all current raw Cell totals after a parameter-package switch. */
+	void RebuildM3FromCurrentRawGrid();
 	/* Refreshes registered debug renderers at the configured rate. */
 	void UpdateDebugRenderers(float DeltaTime);
 	/* Validates sample identity, values, and behaviour tag before queuing. */
@@ -117,6 +147,14 @@ private:
 	bool bRuntimeEnabled = false;
 	/* Owns raw two-dimensional behaviour aggregation. */
 	FAEHeatmapGrid BehaviourGrid;
+	/* Owns derived M3 Exposure and ecological response state aligned with the raw Grid. */
+	FAEExposureGrid ExposureGrid;
+	/* Stores the immutable validated M3 effective parameter snapshot. */
+	FAEM3ParameterSet M3Parameters;
+	/* Controls M3 updates independently from the valid M1 runtime pipeline. */
+	bool bM3Enabled = false;
+	/* Converts one real second into simulated hours for M3 integration. */
+	double SimulationHoursPerRealSecond = 0.0;
 	/* Accumulates render time awaiting fixed behaviour steps. */
 	double BehaviourAccumulator = 0.0;
 	/* Stores elapsed fixed-step behaviour time in seconds. */

@@ -43,7 +43,9 @@ bool FAESettingsDefaultsTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("Grid width is positive"), Settings->GridWidth > 0);
 	TestTrue(TEXT("Grid height is positive"), Settings->GridHeight > 0);
 	TestTrue(TEXT("Cell size is positive"), Settings->CellSizeCm > 0.0f);
-	TestEqual(TEXT("Settings schema"), Settings->SettingsSchemaVersion, 2);
+	TestTrue(TEXT("M3 enabled by default"), Settings->bEnableM3);
+	TestTrue(TEXT("Default M3 package remains explicitly unassigned"), Settings->M3ParameterPackage.IsNull());
+	TestEqual(TEXT("Settings schema"), Settings->SettingsSchemaVersion, 3);
 	return true;
 }
 
