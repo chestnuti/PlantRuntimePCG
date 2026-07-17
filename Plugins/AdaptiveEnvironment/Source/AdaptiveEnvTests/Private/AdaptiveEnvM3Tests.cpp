@@ -474,4 +474,68 @@ bool FAEM3ResetTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FAEM3DebugRangeQueryTest,
+	"AdaptiveEnv.M3.DebugRenderer.RangeQuery",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+/* Verify active M3 debug queries enforce radius, budget, nearest order, and stable ties. */
+bool FAEM3DebugRangeQueryTest::RunTest(const FString& Parameters)
+{
+	// Arrange aligned three-by-three Grids with one active Pass in every Cell.
+	FAEHeatmapGridConfig Config;
+	Config.Dimensions = FIntPoint(3, 3);
+	Config.WorldCenter = FVector2D::ZeroVector;
+	Config.CellSizeCm = 100.0f;
+	Config.KernelRadiusCells = 0;
+	Config.KernelSigma = 1.0f;
+	FAEHeatmapGrid RawGrid;
+	FAEExposureGrid ExposureGrid;
+	TestTrue(TEXT("Raw Grid initializes"), RawGrid.Initialize(Config));
+	TestTrue(TEXT("Exposure Grid initializes"), ExposureGrid.Initialize(Config));
+	int32 AgentIndex = 1;
+	for (int32 Y = 0; Y < Config.Dimensions.Y; ++Y)
+	{
+		for (int32 X = 0; X < Config.Dimensions.X; ++X)
+		{
+			FAEBehaviourSample Sample;
+			Sample.AgentId = FGuid(0xAE000003, 0, 20, AgentIndex++);
+			Sample.WorldLocation = FVector(-100.0f + X * 100.0f, -100.0f + Y * 100.0f, 0.0f);
+			Sample.Timestamp = 0.0;
+			Sample.DeltaSeconds = 0.1f;
+			Sample.SequenceNumber = 0;
+			Sample.BehaviourTag = AdaptiveEnvGameplayTags::Behaviour_Move.GetTag();
+			TestEqual(TEXT("Cell Pass is accepted"), RawGrid.AccumulateSample(Sample), EAEBehaviourSubmitResult::Accepted);
+		}
+	}
+	FAEM3ParameterSet ParameterSet = AdaptiveEnvM3Tests::MakeValidParameters();
+	ParameterSet.ExposurePassWeight = 1.0;
+	ParameterSet.ExposureTravelDistanceWeight = 0.0;
+	ParameterSet.ExposureDwellWeight = 0.0;
+	ParameterSet.ExposureSprintWeight = 0.0;
+	ParameterSet.ExposureCollectEventWeight = 0.0;
+	ParameterSet.ExposureCombatEventWeight = 0.0;
+	TestTrue(TEXT("M3 update succeeds"), ExposureGrid.Update(
+		RawGrid, RawGrid.GetDirtyCellIndices(), 0.0, 0.0, RawGrid.GetBehaviourRevision(), ParameterSet));
+
+	// Assert a small radius isolates one Cell and a budgeted query prefers nearest stable indices.
+	TArray<FAEM3CellSnapshot> Cells;
+	ExposureGrid.GetActiveCellsInRadius(FVector(-100.0f, -100.0f, 0.0f), 10.0f, 9, Cells);
+	TestEqual(TEXT("Small radius returns one Cell"), Cells.Num(), 1);
+	if (Cells.Num() == 1)
+	{
+		TestEqual(TEXT("Small radius returns queried Cell"), Cells[0].Coordinate, FIntPoint(0, 0));
+	}
+	ExposureGrid.GetActiveCellsInRadius(FVector(-100.0f, -100.0f, 0.0f), 1000.0f, 2, Cells);
+	TestEqual(TEXT("Debug budget is enforced"), Cells.Num(), 2);
+	if (Cells.Num() == 2)
+	{
+		TestEqual(TEXT("Nearest Cell is first"), Cells[0].Coordinate, FIntPoint(0, 0));
+		TestEqual(TEXT("Equal-distance tie uses stable row-major index"), Cells[1].Coordinate, FIntPoint(1, 0));
+	}
+	ExposureGrid.GetActiveCellsInRadius(FVector::ZeroVector, 1000.0f, 0, Cells);
+	TestTrue(TEXT("Zero budget clears output"), Cells.IsEmpty());
+	return true;
+}
+
 #endif

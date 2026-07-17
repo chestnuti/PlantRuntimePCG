@@ -118,6 +118,10 @@ public:
 
 	/* Collects non-empty cells around a world position for debug drawing. */
 	void GetDebugCells(const FVector& Location, float RadiusCm, int32 MaxCells, TArray<FAEBehaviourCellSnapshot>& OutCells) const;
+	/* Collects active M3 cells around a world position for read-only debug drawing. */
+	void GetM3DebugCells(const FVector& Location, float RadiusCm, int32 MaxCells, TArray<FAEM3CellSnapshot>& OutCells) const;
+	/* Returns the parameter-derived default colour maximum for one M3 debug mode. */
+	float GetM3DebugMaximumValue(EAEHeatmapDebugMode Mode) const;
 
 protected:
 	/* Restricts the subsystem to playable World types. */

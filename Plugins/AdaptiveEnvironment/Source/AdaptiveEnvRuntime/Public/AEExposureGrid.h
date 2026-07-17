@@ -28,6 +28,8 @@ public:
 	bool GetCellSnapshot(const FIntPoint& Coordinate, FAEM3CellSnapshot& OutSnapshot) const;
 	/* Reads one immutable M3 Cell snapshot by world position in centimetres. */
 	bool GetCellSnapshotAtWorldLocation(const FVector& WorldLocation, FAEM3CellSnapshot& OutSnapshot) const;
+	/* Collects active M3 Cells inside an XY radius with stable nearest-first budgeting. */
+	void GetActiveCellsInRadius(const FVector& WorldLocation, float RadiusCm, int32 MaxCells, TArray<FAEM3CellSnapshot>& OutCells) const;
 	/* Returns the latest global Exposure revision. */
 	uint64 GetExposureRevision() const { return ExposureRevision; }
 	/* Returns the latest global ecological response revision. */

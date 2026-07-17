@@ -86,6 +86,10 @@ public:
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Debug", meta = (ClampMin = "1"))
 	int32 MaxDebugCells = 2048;
 
+	/* Limits numeric labels per refresh below Unreal's shared per-Actor debug-text cap. */
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Debug", meta = (ClampMin = "0", ClampMax = "96"))
+	int32 MaxDebugTextLabels = 96;
+
 	/* Limits debug drawing around the renderer owner in centimetres. */
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Debug", meta = (ClampMin = "0.0"))
 	float DebugDrawRadiusCm = 5000.0f;
@@ -100,5 +104,5 @@ public:
 
 	/* Identifies the serialized settings schema version. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Version")
-	int32 SettingsSchemaVersion = 3;
+	int32 SettingsSchemaVersion = 4;
 };

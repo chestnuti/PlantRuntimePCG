@@ -359,6 +359,45 @@ void UAEAdaptiveEnvWorldSubsystem::GetDebugCells(const FVector& Location, const 
 	BehaviourGrid.GetNonEmptyCellsInRadius(Location, RadiusCm, MaxCells, OutCells);
 }
 
+/* Forward a bounded active-cell query to the World-owned M3 Grid. */
+void UAEAdaptiveEnvWorldSubsystem::GetM3DebugCells(
+	const FVector& Location,
+	const float RadiusCm,
+	const int32 MaxCells,
+	TArray<FAEM3CellSnapshot>& OutCells) const
+{
+	if (!bM3Enabled)
+	{
+		OutCells.Reset();
+		return;
+	}
+	ExposureGrid.GetActiveCellsInRadius(Location, RadiusCm, MaxCells, OutCells);
+}
+
+/* Resolve a stable parameter-aware normalization maximum for M3 debug colour. */
+float UAEAdaptiveEnvWorldSubsystem::GetM3DebugMaximumValue(const EAEHeatmapDebugMode Mode) const
+{
+	switch (Mode)
+	{
+	case EAEHeatmapDebugMode::CurrentExposure:
+		return static_cast<float>(M3Parameters.ExposureMaximum);
+	case EAEHeatmapDebugMode::DamageRate:
+		return static_cast<float>(M3Parameters.DamageMaximumRatePerSimulationHour);
+	case EAEHeatmapDebugMode::RecoveryRate:
+		return static_cast<float>(M3Parameters.RecoveryBaseRatePerSimulationHour);
+	case EAEHeatmapDebugMode::PassExposure:
+	case EAEHeatmapDebugMode::TravelExposure:
+	case EAEHeatmapDebugMode::DwellExposure:
+	case EAEHeatmapDebugMode::SprintExposure:
+	case EAEHeatmapDebugMode::CollectExposure:
+	case EAEHeatmapDebugMode::CombatExposure:
+	case EAEHeatmapDebugMode::EcologicalDamage:
+		return 1.0f;
+	default:
+		return 0.0f;
+	}
+}
+
 // Apply deferred removals before additions for trackers and renderers.
 void UAEAdaptiveEnvWorldSubsystem::ApplyPendingRegistrations()
 {

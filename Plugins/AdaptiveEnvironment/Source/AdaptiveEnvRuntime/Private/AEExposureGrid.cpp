@@ -277,6 +277,61 @@ bool FAEExposureGrid::GetCellSnapshotAtWorldLocation(const FVector& WorldLocatio
 	return WorldToCell(WorldLocation, Coordinate) && GetCellSnapshot(Coordinate, OutSnapshot);
 }
 
+/* Collect active M3 snapshots inside one bounded XY debug region. */
+void FAEExposureGrid::GetActiveCellsInRadius(
+	const FVector& WorldLocation,
+	const float RadiusCm,
+	const int32 MaxCells,
+	TArray<FAEM3CellSnapshot>& OutCells) const
+{
+	OutCells.Reset();
+	if (MaxCells <= 0 || Cells.IsEmpty())
+	{
+		return;
+	}
+
+	struct FCandidate
+	{
+		int32 Index = INDEX_NONE;
+		double DistanceSquared = 0.0;
+	};
+
+	// Gather only active Cells inside the requested circular XY region.
+	const double RadiusSquared = FMath::Square(static_cast<double>(FMath::Max(RadiusCm, 0.0f)));
+	const FVector2D QueryLocation(WorldLocation);
+	TArray<FCandidate> Candidates;
+	Candidates.Reserve(FMath::Min(ActiveCellCount, MaxCells));
+	for (int32 Index = 0; Index < Cells.Num(); ++Index)
+	{
+		if (!ActiveFlags[Index])
+		{
+			continue;
+		}
+		const FIntPoint Coordinate(Index % Config.Dimensions.X, Index / Config.Dimensions.X);
+		const FVector Center = GetCellWorldCenter(Coordinate);
+		const double DistanceSquared = FVector2D::DistSquared(FVector2D(Center), QueryLocation);
+		if (DistanceSquared <= RadiusSquared)
+		{
+			Candidates.Add({Index, DistanceSquared});
+		}
+	}
+
+	// Prefer nearby Cells while using row-major index as a deterministic tie-breaker.
+	Candidates.Sort([](const FCandidate& A, const FCandidate& B)
+	{
+		return A.DistanceSquared < B.DistanceSquared
+			|| (FMath::IsNearlyEqual(A.DistanceSquared, B.DistanceSquared) && A.Index < B.Index);
+	});
+	const int32 ResultCount = FMath::Min(Candidates.Num(), MaxCells);
+	OutCells.Reserve(ResultCount);
+	for (int32 ResultIndex = 0; ResultIndex < ResultCount; ++ResultIndex)
+	{
+		const int32 CellIndex = Candidates[ResultIndex].Index;
+		const FIntPoint Coordinate(CellIndex % Config.Dimensions.X, CellIndex / Config.Dimensions.X);
+		OutCells.Add(MakeSnapshot(Coordinate, CellIndex));
+	}
+}
+
 /* Flatten one valid XY coordinate into row-major storage. */
 bool FAEExposureGrid::CellToIndex(const FIntPoint& Coordinate, int32& OutIndex) const
 {

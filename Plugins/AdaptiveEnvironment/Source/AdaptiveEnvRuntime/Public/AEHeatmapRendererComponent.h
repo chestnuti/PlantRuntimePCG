@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
+#include "AEM3Types.h"
 #include "AdaptiveEnvTypes.h"
 #include "AEHeatmapRendererComponent.generated.h"
 
@@ -24,7 +25,7 @@ public:
 	/* Draws visible behaviour cells for the requested duration in seconds. */
 	void RenderDebug(const UAEAdaptiveEnvWorldSubsystem& Subsystem, float DurationSeconds) const;
 
-	/* Selects the displayed behaviour layer. */
+	/* Selects the displayed M1 behaviour or M3 ecological layer. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Debug")
 	EAEHeatmapDebugMode Mode = EAEHeatmapDebugMode::SmoothedActivity;
 
@@ -36,6 +37,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Debug", meta = (ClampMin = "0.0"))
 	float FixedMaximumValue = 10.0f;
 
+	/* Uses parameter-derived ranges for bounded M3 modes when available. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Debug")
+	bool bUseModeDefaultRange = true;
+
 	/* Draws numeric values above visible cells. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Debug")
 	bool bDrawValues = false;
@@ -45,6 +50,10 @@ public:
 	float DrawHeightCm = 20.0f;
 
 private:
-	/* Reads the selected debug metric from a cell snapshot. */
-	float GetDisplayValue(const FAEBehaviourCellSnapshot& Snapshot) const;
+	/* Returns whether the selected layer consumes M3 snapshots. */
+	bool IsM3Mode() const;
+	/* Reads the selected M1 metric from one behavior snapshot. */
+	float GetBehaviourDisplayValue(const FAEBehaviourCellSnapshot& Snapshot) const;
+	/* Reads the selected M3 metric from one ecological snapshot. */
+	float GetM3DisplayValue(const FAEM3CellSnapshot& Snapshot) const;
 };

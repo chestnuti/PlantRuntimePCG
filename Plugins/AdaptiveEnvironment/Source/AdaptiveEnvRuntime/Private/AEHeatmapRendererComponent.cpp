@@ -4,6 +4,22 @@
 #include "AdaptiveEnvWorldSubsystem.h"
 #include "DrawDebugHelpers.h"
 #include "GameFramework/Actor.h"
+#include "GameFramework/PlayerController.h"
+
+namespace AEHeatmapRendererPrivate
+{
+	constexpr int32 SafeDebugTextLabelCap = 96;
+
+	/* Stores one renderer-independent Cell value ready for geometry and label drawing. */
+	struct FCellDrawData
+	{
+		FIntPoint Coordinate = FIntPoint::ZeroValue;
+		FVector WorldCenter = FVector::ZeroVector;
+		FVector2D FlowDirection = FVector2D::ZeroVector;
+		float Value = 0.0f;
+		FColor Color = FColor::White;
+	};
+}
 
 // Disable component Tick because the World Subsystem controls debug refreshes.
 UAEHeatmapRendererComponent::UAEHeatmapRendererComponent()
@@ -47,40 +63,97 @@ void UAEHeatmapRendererComponent::RenderDebug(const UAEAdaptiveEnvWorldSubsystem
 		return;
 	}
 
-	// Query nearby cells and derive debug geometry from the grid dimensions.
+	// Derive shared debug geometry and parameter-aware colour normalization.
 	const UAdaptiveEnvSettings* Settings = GetDefault<UAdaptiveEnvSettings>();
 	const FVector Origin = GetOwner() ? GetOwner()->GetActorLocation() : FVector::ZeroVector;
-	TArray<FAEBehaviourCellSnapshot> Cells;
-	Subsystem.GetDebugCells(Origin, Settings->DebugDrawRadiusCm, Settings->MaxDebugCells, Cells);
 	const FVector2D GridSize = Subsystem.GetGridWorldBounds().GetSize();
 	const FIntPoint Dimensions = Subsystem.GetGridDimensions();
 	const float CellSize = Dimensions.X > 0 ? static_cast<float>(GridSize.X / Dimensions.X) : 100.0f;
 	const FVector Extent(CellSize * 0.48f, CellSize * 0.48f, 3.0f);
+	const float ModeMaximum = bUseModeDefaultRange && IsM3Mode()
+		? Subsystem.GetM3DebugMaximumValue(Mode)
+		: 0.0f;
+	const float DisplayMaximum = FMath::Max(
+		ModeMaximum > 0.0f ? ModeMaximum : FixedMaximumValue,
+		UE_SMALL_NUMBER);
+	TArray<AEHeatmapRendererPrivate::FCellDrawData> DrawCells;
 
-	// Draw one normalized colour box for every visible value above the threshold.
-	for (const FAEBehaviourCellSnapshot& Cell : Cells)
+	// Query the selected data layer and convert immutable snapshots into common draw data.
+	if (IsM3Mode())
 	{
-		const float Value = GetDisplayValue(Cell);
-		if (Value < MinimumValue)
+		TArray<FAEM3CellSnapshot> Cells;
+		Subsystem.GetM3DebugCells(Origin, Settings->DebugDrawRadiusCm, Settings->MaxDebugCells, Cells);
+		DrawCells.Reserve(Cells.Num());
+		for (const FAEM3CellSnapshot& Cell : Cells)
 		{
-			continue;
+			const float Value = GetM3DisplayValue(Cell);
+			if (!FMath::IsFinite(Value) || Value < MinimumValue)
+			{
+				continue;
+			}
+			const float Alpha = FMath::Clamp(Value / DisplayMaximum, 0.0f, 1.0f);
+			DrawCells.Add({Cell.Coordinate, Cell.WorldCenter, FVector2D::ZeroVector, Value,
+				FLinearColor::LerpUsingHSV(FLinearColor::Blue, FLinearColor::Red, Alpha).ToFColor(true)});
 		}
+	}
+	else
+	{
+		TArray<FAEBehaviourCellSnapshot> Cells;
+		Subsystem.GetDebugCells(Origin, Settings->DebugDrawRadiusCm, Settings->MaxDebugCells, Cells);
+		DrawCells.Reserve(Cells.Num());
+		for (const FAEBehaviourCellSnapshot& Cell : Cells)
+		{
+			const float Value = GetBehaviourDisplayValue(Cell);
+			if (!FMath::IsFinite(Value) || Value < MinimumValue)
+			{
+				continue;
+			}
+			const float Alpha = FMath::Clamp(Value / DisplayMaximum, 0.0f, 1.0f);
+			DrawCells.Add({Cell.Coordinate, Cell.WorldCenter, Cell.FlowDirection, Value,
+				FLinearColor::LerpUsingHSV(FLinearColor::Blue, FLinearColor::Red, Alpha).ToFColor(true)});
+		}
+	}
 
-		const float Alpha = FMath::Clamp(Value / FMath::Max(FixedMaximumValue, UE_SMALL_NUMBER), 0.0f, 1.0f);
-		const FColor Color = FLinearColor::LerpUsingHSV(FLinearColor::Blue, FLinearColor::Red, Alpha).ToFColor(true);
+	// Draw geometry for every selected Cell independently from the smaller text budget.
+	for (const AEHeatmapRendererPrivate::FCellDrawData& Cell : DrawCells)
+	{
 		const FVector Center = Cell.WorldCenter + FVector(0.0, 0.0, DrawHeightCm);
-		DrawDebugBox(GetWorld(), Center, Extent, Color, false, DurationSeconds * 1.1f, 0, 1.0f);
-
-		// Add an arrow only when the Flow layer has a stable direction.
+		DrawDebugBox(GetWorld(), Center, Extent, Cell.Color, false, DurationSeconds * 1.1f, 0, 1.0f);
 		if (Mode == EAEHeatmapDebugMode::Flow && !Cell.FlowDirection.IsNearlyZero())
 		{
 			const FVector Direction(Cell.FlowDirection.X, Cell.FlowDirection.Y, 0.0);
-			DrawDebugDirectionalArrow(GetWorld(), Center, Center + Direction * CellSize * 0.4f, 20.0f, Color, false, DurationSeconds * 1.1f, 0, 2.0f);
+			DrawDebugDirectionalArrow(GetWorld(), Center, Center + Direction * CellSize * 0.4f, 20.0f, Cell.Color, false, DurationSeconds * 1.1f, 0, 2.0f);
 		}
-		// Add numeric labels when detailed inspection is enabled.
-		if (bDrawValues)
+	}
+
+	// Keep labels below Unreal's shared 128-string WorldSettings cap and prefer nearby camera values.
+	if (bDrawValues && Settings->MaxDebugTextLabels > 0)
+	{
+		FVector CameraLocation = Origin;
+		FRotator CameraRotation = FRotator::ZeroRotator;
+		if (APlayerController* PlayerController = GetWorld()->GetFirstPlayerController())
 		{
-			DrawDebugString(GetWorld(), Center + FVector(0.0, 0.0, 10.0f), FString::Printf(TEXT("%.2f"), Value), nullptr, Color, DurationSeconds * 1.1f, false);
+			PlayerController->GetPlayerViewPoint(CameraLocation, CameraRotation);
+		}
+		DrawCells.Sort([CameraLocation](const AEHeatmapRendererPrivate::FCellDrawData& A, const AEHeatmapRendererPrivate::FCellDrawData& B)
+		{
+			const double DistanceA = FVector::DistSquared(CameraLocation, A.WorldCenter);
+			const double DistanceB = FVector::DistSquared(CameraLocation, B.WorldCenter);
+			return DistanceA < DistanceB
+				|| (FMath::IsNearlyEqual(DistanceA, DistanceB)
+					&& (A.Coordinate.Y < B.Coordinate.Y
+						|| (A.Coordinate.Y == B.Coordinate.Y && A.Coordinate.X < B.Coordinate.X)));
+		});
+		const int32 LabelBudget = FMath::Clamp(Settings->MaxDebugTextLabels, 0, AEHeatmapRendererPrivate::SafeDebugTextLabelCap);
+		const int32 LabelCount = FMath::Min(DrawCells.Num(), LabelBudget);
+		const float TextDurationSeconds = FMath::Max(DurationSeconds * 0.9f, 0.01f);
+		AActor* TextBaseActor = GetOwner();
+		for (int32 LabelIndex = 0; LabelIndex < LabelCount; ++LabelIndex)
+		{
+			const AEHeatmapRendererPrivate::FCellDrawData& Cell = DrawCells[LabelIndex];
+			const FVector TextLocation = Cell.WorldCenter + FVector(0.0, 0.0, DrawHeightCm + 10.0f);
+			const FVector TextOffset = TextBaseActor != nullptr ? TextLocation - TextBaseActor->GetActorLocation() : TextLocation;
+			DrawDebugString(GetWorld(), TextOffset, FString::Printf(TEXT("%.2f"), Cell.Value), TextBaseActor, Cell.Color, TextDurationSeconds, false);
 		}
 	}
 #else
@@ -90,8 +163,14 @@ void UAEHeatmapRendererComponent::RenderDebug(const UAEAdaptiveEnvWorldSubsystem
 #endif
 }
 
-// Map the current debug mode to its cell snapshot metric.
-float UAEHeatmapRendererComponent::GetDisplayValue(const FAEBehaviourCellSnapshot& Snapshot) const
+/* Return whether the selected layer is derived from M3 state. */
+bool UAEHeatmapRendererComponent::IsM3Mode() const
+{
+	return Mode >= EAEHeatmapDebugMode::PassExposure;
+}
+
+/* Map the current M1 debug mode to one raw behavior metric. */
+float UAEHeatmapRendererComponent::GetBehaviourDisplayValue(const FAEBehaviourCellSnapshot& Snapshot) const
 {
 	switch (Mode)
 	{
@@ -105,6 +184,38 @@ float UAEHeatmapRendererComponent::GetDisplayValue(const FAEBehaviourCellSnapsho
 		return Snapshot.SmoothedActivity;
 	case EAEHeatmapDebugMode::Flow:
 		return Snapshot.FlowMagnitude;
+	default:
+		return 0.0f;
+	}
+}
+
+/* Map the current M3 debug mode to one Exposure or ecological response metric. */
+float UAEHeatmapRendererComponent::GetM3DisplayValue(const FAEM3CellSnapshot& Snapshot) const
+{
+	switch (Mode)
+	{
+	case EAEHeatmapDebugMode::PassExposure:
+		return Snapshot.PassExposure;
+	case EAEHeatmapDebugMode::TravelExposure:
+		return Snapshot.TravelExposure;
+	case EAEHeatmapDebugMode::DwellExposure:
+		return Snapshot.DwellExposure;
+	case EAEHeatmapDebugMode::SprintExposure:
+		return Snapshot.SprintExposure;
+	case EAEHeatmapDebugMode::CollectExposure:
+		return Snapshot.CollectExposure;
+	case EAEHeatmapDebugMode::CombatExposure:
+		return Snapshot.CombatExposure;
+	case EAEHeatmapDebugMode::CurrentExposure:
+		return Snapshot.CurrentExposure;
+	case EAEHeatmapDebugMode::EcologicalDamage:
+		return Snapshot.EcologicalDamageRatio;
+	case EAEHeatmapDebugMode::DamageRate:
+		return Snapshot.DamageRatePerSimulationHour;
+	case EAEHeatmapDebugMode::RecoveryRate:
+		return Snapshot.RecoveryRatePerSimulationHour;
+	case EAEHeatmapDebugMode::LowExposureDuration:
+		return Snapshot.LowExposureDurationSimulationHours;
 	default:
 		return 0.0f;
 	}
