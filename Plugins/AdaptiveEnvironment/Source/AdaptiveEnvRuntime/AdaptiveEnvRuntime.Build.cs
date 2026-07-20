@@ -18,7 +18,6 @@ public class AdaptiveEnvRuntime : ModuleRules
 		PrivateDependencyModuleNames.AddRange(new[]
 		{
 			"Json",
-			"JsonUtilities",
 			"NavigationSystem",
 			"RenderCore",
 			"RHI"

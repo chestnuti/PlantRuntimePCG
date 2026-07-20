@@ -3,60 +3,74 @@
 #include "CoreMinimal.h"
 #include "AEM3Types.generated.h"
 
-/* Stores validated effective M3 values and their immutable parameter-package identity. */
+/* Identifies one fixed M3 behavior channel index. */
+enum class EAEExposureChannel : uint8
+{
+	Pass,
+	Travel,
+	Dwell,
+	Sprint,
+	Collect,
+	Combat,
+	Count
+};
+
+/* Stores one channel normalization reference and contribution weight. */
+struct ADAPTIVEENVRUNTIME_API FAEExposureChannelParameters
+{
+	/* Normalizes the channel fact in count, seconds, or metres according to its fixed index. */
+	double ReferenceValue = 1.0;
+	/* Weights the normalized channel contribution in total Exposure. */
+	double Weight = 0.0;
+};
+
+/* Stores accumulated Exposure dynamics shared by all behavior channels. */
+struct ADAPTIVEENVRUNTIME_API FAEExposureDynamicsParameters
+{
+	/* Caps accumulated Cell Exposure as a non-negative ratio. */
+	double Maximum = 1.0;
+	/* Defines the Exposure half-life in simulated hours. */
+	double HalfLifeSimulationHours = 1.0;
+};
+
+/* Stores the piecewise-linear ecological Damage response. */
+struct ADAPTIVEENVRUNTIME_API FAEDamageResponseParameters
+{
+	/* Starts Damage when Exposure reaches this ratio. */
+	double ActivationExposure = 0.5;
+	/* Saturates Damage when Exposure reaches this ratio. */
+	double SaturationExposure = 1.0;
+	/* Caps Damage growth per simulated hour. */
+	double MaximumRatePerSimulationHour = 0.0;
+};
+
+/* Stores the delayed low-Exposure ecological Recovery response. */
+struct ADAPTIVEENVRUNTIME_API FAERecoveryResponseParameters
+{
+	/* Starts the low-Exposure recovery timer below this ratio. */
+	double ActivationExposure = 0.25;
+	/* Defines the continuous low-Exposure delay before Recovery in simulated hours. */
+	double DelaySimulationHours = 0.0;
+	/* Defines the constant Recovery rate per simulated hour. */
+	double BaseRatePerSimulationHour = 0.0;
+};
+
+/* Stores validated effective M3 values grouped by model responsibility. */
 struct ADAPTIVEENVRUNTIME_API FAEM3ParameterSet
 {
-	/* Identifies the source parameter-package lineage. */
-	FGuid PackageId;
-	/* Stores the source parameter-package semantic version. */
-	FString SemanticVersion;
-	/* Stores the canonical source parameter-package SHA-256 hash. */
-	FString ContentHash;
-	/* Stores effective parameter versions by stable parameter name. */
-	TMap<FName, FString> ParameterVersions;
+	/* Stores six channel contracts at stable EAEExposureChannel indices. */
+	TStaticArray<FAEExposureChannelParameters, static_cast<int32>(EAEExposureChannel::Count)> Channels;
+	/* Stores accumulated Exposure decay and cap parameters. */
+	FAEExposureDynamicsParameters ExposureDynamics;
+	/* Stores the Damage response parameters. */
+	FAEDamageResponseParameters DamageResponse;
+	/* Stores the Recovery response parameters. */
+	FAERecoveryResponseParameters RecoveryResponse;
 
-	/* Normalizes Cell entry count into Pass Exposure. */
-	double ExposurePassReferenceCount = 1.0;
-	/* Normalizes non-sprint three-dimensional travel distance in metres. */
-	double ExposureTravelDistanceReferenceMeters = 1.0;
-	/* Normalizes low-speed dwelling duration in seconds. */
-	double ExposureDwellReferenceSeconds = 1.0;
-	/* Normalizes sprint three-dimensional travel distance in metres. */
-	double ExposureSprintDistanceReferenceMeters = 1.0;
-	/* Normalizes weighted collection-event count. */
-	double ExposureCollectEventReferenceCount = 1.0;
-	/* Normalizes weighted combat-event count. */
-	double ExposureCombatEventReferenceCount = 1.0;
-
-	/* Weights normalized Pass Exposure in the total increment. */
-	double ExposurePassWeight = 0.0;
-	/* Weights normalized non-sprint Travel Exposure in the total increment. */
-	double ExposureTravelDistanceWeight = 0.0;
-	/* Weights normalized Dwell Exposure in the total increment. */
-	double ExposureDwellWeight = 0.0;
-	/* Weights normalized Sprint Exposure in the total increment. */
-	double ExposureSprintWeight = 0.0;
-	/* Weights normalized collection-event Exposure in the total increment. */
-	double ExposureCollectEventWeight = 0.0;
-	/* Weights normalized combat-event Exposure in the total increment. */
-	double ExposureCombatEventWeight = 0.0;
-
-	/* Caps accumulated Cell Exposure as a non-negative ratio. */
-	double ExposureMaximum = 1.0;
-	/* Defines the Exposure half-life in simulated hours. */
-	double ExposureHalfLifeSimulationHours = 1.0;
-	/* Starts Damage when Exposure reaches this ratio. */
-	double DamageActivationExposure = 0.5;
-	/* Saturates Damage when Exposure reaches this ratio. */
-	double DamageSaturationExposure = 1.0;
-	/* Caps Damage growth per simulated hour. */
-	double DamageMaximumRatePerSimulationHour = 0.0;
-	/* Starts the low-Exposure recovery timer below this ratio. */
-	double RecoveryActivationExposure = 0.25;
-	/* Defines the continuous low-Exposure delay before Recovery in simulated hours. */
-	double RecoveryDelaySimulationHours = 0.0;
-	/* Defines the first-version constant Recovery rate per simulated hour. */
-	double RecoveryBaseRatePerSimulationHour = 0.0;
+	/* Returns mutable parameters for one fixed channel. */
+	FAEExposureChannelParameters& Channel(EAEExposureChannel Channel) { return Channels[static_cast<int32>(Channel)]; }
+	/* Returns immutable parameters for one fixed channel. */
+	const FAEExposureChannelParameters& Channel(EAEExposureChannel Channel) const { return Channels[static_cast<int32>(Channel)]; }
 };
 
 /* Stores cumulative raw M1 facts already consumed by one M3 Cell. */
@@ -146,4 +160,3 @@ struct ADAPTIVEENVRUNTIME_API FAEM3CellSnapshot
 	UPROPERTY(BlueprintReadOnly, Category = "Adaptive Environment|M3")
 	int64 ResponseRevision = 0;
 };
-

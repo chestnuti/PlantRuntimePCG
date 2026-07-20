@@ -4,9 +4,8 @@
 
 #include "AEExposureGrid.h"
 #include "AEHeatmapGrid.h"
+#include "AEParameterBundleService.h"
 #include "AEM3ParameterService.h"
-#include "AEParameterPackageService.h"
-#include "AdaptiveEnvDataAssets.h"
 #include "AdaptiveEnvGameplayTags.h"
 
 namespace AdaptiveEnvM3Tests
@@ -15,82 +14,63 @@ namespace AdaptiveEnvM3Tests
 	FAEM3ParameterSet MakeValidParameters()
 	{
 		FAEM3ParameterSet Parameters;
-		Parameters.PackageId = FGuid(0xAE000003, 0, 0, 1);
-		Parameters.SemanticVersion = TEXT("1.0.0-test");
-		Parameters.ContentHash = FString::ChrN(64, TEXT('a'));
-		Parameters.ExposurePassReferenceCount = 1.0;
-		Parameters.ExposureTravelDistanceReferenceMeters = 1.0;
-		Parameters.ExposureDwellReferenceSeconds = 1.0;
-		Parameters.ExposureSprintDistanceReferenceMeters = 1.0;
-		Parameters.ExposureCollectEventReferenceCount = 1.0;
-		Parameters.ExposureCombatEventReferenceCount = 1.0;
-		Parameters.ExposurePassWeight = 1.0 / 6.0;
-		Parameters.ExposureTravelDistanceWeight = 1.0 / 6.0;
-		Parameters.ExposureDwellWeight = 1.0 / 6.0;
-		Parameters.ExposureSprintWeight = 1.0 / 6.0;
-		Parameters.ExposureCollectEventWeight = 1.0 / 6.0;
-		Parameters.ExposureCombatEventWeight = 1.0 / 6.0;
-		Parameters.ExposureMaximum = 1.0;
-		Parameters.ExposureHalfLifeSimulationHours = 1.0;
-		Parameters.DamageActivationExposure = 0.5;
-		Parameters.DamageSaturationExposure = 0.8;
-		Parameters.DamageMaximumRatePerSimulationHour = 0.2;
-		Parameters.RecoveryActivationExposure = 0.25;
-		Parameters.RecoveryDelaySimulationHours = 1.0;
-		Parameters.RecoveryBaseRatePerSimulationHour = 0.1;
+		for (int32 Index = 0; Index < static_cast<int32>(EAEExposureChannel::Count); ++Index)
+		{
+			Parameters.Channels[Index].ReferenceValue = 1.0;
+			Parameters.Channels[Index].Weight = 1.0 / 6.0;
+		}
+		Parameters.ExposureDynamics.Maximum = 1.0;
+		Parameters.ExposureDynamics.HalfLifeSimulationHours = 1.0;
+		Parameters.DamageResponse.ActivationExposure = 0.5;
+		Parameters.DamageResponse.SaturationExposure = 0.8;
+		Parameters.DamageResponse.MaximumRatePerSimulationHour = 0.2;
+		Parameters.RecoveryResponse.ActivationExposure = 0.25;
+		Parameters.RecoveryResponse.DelaySimulationHours = 1.0;
+		Parameters.RecoveryResponse.BaseRatePerSimulationHour = 0.1;
 		return Parameters;
 	}
 
-	/* Creates one transient M2 package containing the exact 20-parameter M3 contract. */
-	UAEParameterSynthesisAsset* MakeValidPackage()
+	/* Creates one canonical transient block containing the exact 20-parameter M3 contract. */
+	FAEParameterBlock MakeValidBlock()
 	{
-		UAEParameterSynthesisAsset* Package = NewObject<UAEParameterSynthesisAsset>();
-		Package->Metadata.PackageId = FGuid(0xAE000003, 0, 0, 100);
-		Package->Metadata.SemanticVersion = TEXT("1.0.0-test");
-		Package->Metadata.CreatedAt = FDateTime(2026, 7, 17, 0, 0, 0);
-		Package->Metadata.CreatedBy = TEXT("AdaptiveEnvM3Tests");
-		Package->Metadata.ReviewStatus = TEXT("TestOnly");
-
-		// Add exact effective scalar values without claiming real literature evidence.
-		auto Add = [Package](const TCHAR* Name, const TCHAR* Unit, const double Value, const uint32 Id)
+		FAEParameterBlock Block;
+		Block.BlockId = FGuid(0xAE000003, 0, 0, 100);
+		Block.ModelContract = FAEParameterBundleService::M3ModelContract();
+		Block.BlockVersion = TEXT("1.0.0");
+		auto Add = [&Block](const TCHAR* Name, const TCHAR* Unit, const double Value, const uint32 Id)
 		{
-			FAEDerivedParameter& Parameter = Package->DerivedParameters.AddDefaulted_GetRef();
+			FAEPublishedParameter& Parameter = Block.Parameters.AddDefaulted_GetRef();
 			Parameter.ParameterId = FGuid(0xAE000003, 0, 0, Id);
-			Parameter.ParameterName = FName(Name);
-			Parameter.Description = TEXT("Transient M3 automation-test parameter.");
+			Parameter.Name = FName(Name);
 			Parameter.Unit = Unit;
-			Parameter.ParameterVersion = TEXT("1.0.0-test");
+			Parameter.ParameterVersion = TEXT("1.0.0");
 			Parameter.EvidenceBasedValue = Value;
-			Parameter.RuntimeValue = Value;
+			Parameter.EffectiveValue = Value;
 			Parameter.PlausibleMinimum = FMath::Min(Value, 0.0);
 			Parameter.PlausibleMaximum = FMath::Max(Value, 1.0);
 		};
 		uint32 Id = 1;
-		Add(TEXT("ExposurePassReferenceCount"), TEXT("count"), 1.0, Id++);
-		Add(TEXT("ExposureTravelDistanceReferenceMeters"), TEXT("m"), 1.0, Id++);
-		Add(TEXT("ExposureDwellReferenceSeconds"), TEXT("s"), 1.0, Id++);
-		Add(TEXT("ExposureSprintDistanceReferenceMeters"), TEXT("m"), 1.0, Id++);
-		Add(TEXT("ExposureCollectEventReferenceCount"), TEXT("count"), 1.0, Id++);
-		Add(TEXT("ExposureCombatEventReferenceCount"), TEXT("count"), 1.0, Id++);
-		Add(TEXT("ExposurePassWeight"), TEXT("ratio"), 1.0 / 6.0, Id++);
-		Add(TEXT("ExposureTravelDistanceWeight"), TEXT("ratio"), 1.0 / 6.0, Id++);
-		Add(TEXT("ExposureDwellWeight"), TEXT("ratio"), 1.0 / 6.0, Id++);
-		Add(TEXT("ExposureSprintWeight"), TEXT("ratio"), 1.0 / 6.0, Id++);
-		Add(TEXT("ExposureCollectEventWeight"), TEXT("ratio"), 1.0 / 6.0, Id++);
-		Add(TEXT("ExposureCombatEventWeight"), TEXT("ratio"), 1.0 / 6.0, Id++);
-		Add(TEXT("ExposureMaximum"), TEXT("ratio"), 1.0, Id++);
-		Add(TEXT("ExposureHalfLifeSimulationHours"), TEXT("h"), 1.0, Id++);
 		Add(TEXT("DamageActivationExposure"), TEXT("ratio"), 0.5, Id++);
-		Add(TEXT("DamageSaturationExposure"), TEXT("ratio"), 0.8, Id++);
 		Add(TEXT("DamageMaximumRatePerSimulationHour"), TEXT("ratio/h"), 0.2, Id++);
+		Add(TEXT("DamageSaturationExposure"), TEXT("ratio"), 0.8, Id++);
+		Add(TEXT("ExposureCollectEventReferenceCount"), TEXT("count"), 1.0, Id++);
+		Add(TEXT("ExposureCollectEventWeight"), TEXT("ratio"), 1.0 / 6.0, Id++);
+		Add(TEXT("ExposureCombatEventReferenceCount"), TEXT("count"), 1.0, Id++);
+		Add(TEXT("ExposureCombatEventWeight"), TEXT("ratio"), 1.0 / 6.0, Id++);
+		Add(TEXT("ExposureDwellReferenceSeconds"), TEXT("s"), 1.0, Id++);
+		Add(TEXT("ExposureDwellWeight"), TEXT("ratio"), 1.0 / 6.0, Id++);
+		Add(TEXT("ExposureHalfLifeSimulationHours"), TEXT("h"), 1.0, Id++);
+		Add(TEXT("ExposureMaximum"), TEXT("ratio"), 1.0, Id++);
+		Add(TEXT("ExposurePassReferenceCount"), TEXT("count"), 1.0, Id++);
+		Add(TEXT("ExposurePassWeight"), TEXT("ratio"), 1.0 / 6.0, Id++);
+		Add(TEXT("ExposureSprintDistanceReferenceMeters"), TEXT("m"), 1.0, Id++);
+		Add(TEXT("ExposureSprintWeight"), TEXT("ratio"), 1.0 / 6.0, Id++);
+		Add(TEXT("ExposureTravelDistanceReferenceMeters"), TEXT("m"), 1.0, Id++);
+		Add(TEXT("ExposureTravelDistanceWeight"), TEXT("ratio"), 1.0 / 6.0, Id++);
 		Add(TEXT("RecoveryActivationExposure"), TEXT("ratio"), 0.25, Id++);
-		Add(TEXT("RecoveryDelaySimulationHours"), TEXT("h"), 1.0, Id++);
 		Add(TEXT("RecoveryBaseRatePerSimulationHour"), TEXT("ratio/h"), 0.1, Id++);
-
-		// Seal the canonical test package after all effective values are populated.
-		FString HashError;
-		Package->Metadata.ContentHash = FAEParameterPackageService::ComputeContentHash(*Package, HashError);
-		return Package;
+		Add(TEXT("RecoveryDelaySimulationHours"), TEXT("h"), 1.0, Id++);
+		return Block;
 	}
 
 	/* Initializes aligned one-Cell raw and M3 Grids for deterministic model tests. */
@@ -140,24 +120,18 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	"AdaptiveEnv.M3.Parameters.RequiredAndUnits",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
-/* Verify the exact 20-parameter package loads and missing or mixed-unit values fail. */
+/* Verify the exact 20-parameter block maps into the grouped M3 snapshot. */
 bool FAEM3RequiredParametersTest::RunTest(const FString& Parameters)
 {
-	// Arrange one sealed transient package and build its immutable M3 snapshot.
-	UAEParameterSynthesisAsset* Package = AdaptiveEnvM3Tests::MakeValidPackage();
+	// Arrange one canonical transient block and valid parent bundle identity.
+	FAEParameterBlock Block = AdaptiveEnvM3Tests::MakeValidBlock();
+	FAEParameterBlockView View{ &Block };
+	FAEParameterBundleIdentity Identity{ FGuid(0xAE000003, 0, 0, 200), TEXT("1.0.0"), FString::ChrN(64, TEXT('a')) };
 	FAEM3ParameterSet ParameterSet;
-	TestTrue(TEXT("Complete package validates"), FAEM3ParameterService::BuildParameterSet(*Package, ParameterSet).IsValid());
-	TestEqual(TEXT("All parameter versions are captured"), ParameterSet.ParameterVersions.Num(), 20);
-
-	// Assert missing and mixed-unit contracts are rejected after resealing each mutation.
-	Package->DerivedParameters.Pop();
-	FString HashError;
-	Package->Metadata.ContentHash = FAEParameterPackageService::ComputeContentHash(*Package, HashError);
-	TestFalse(TEXT("Missing parameter fails"), FAEM3ParameterService::BuildParameterSet(*Package, ParameterSet).IsValid());
-	Package = AdaptiveEnvM3Tests::MakeValidPackage();
-	Package->DerivedParameters[0].Unit = TEXT("m");
-	Package->Metadata.ContentHash = FAEParameterPackageService::ComputeContentHash(*Package, HashError);
-	TestFalse(TEXT("Mixed unit fails"), FAEM3ParameterService::BuildParameterSet(*Package, ParameterSet).IsValid());
+	TestTrue(TEXT("Complete block validates"), FAEM3ParameterService::BuildParameterSet(View, Identity, ParameterSet).IsValid());
+	TestTrue(TEXT("Pass maps to fixed channel"), FMath::IsNearlyEqual(ParameterSet.Channel(EAEExposureChannel::Pass).ReferenceValue, 1.0));
+	Block.Parameters.Pop();
+	TestFalse(TEXT("Missing parameter fails"), FAEM3ParameterService::BuildParameterSet(View, Identity, ParameterSet).IsValid());
 	return true;
 }
 
@@ -174,10 +148,10 @@ bool FAEM3WeightContractTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("Equal weights validate"), FAEM3ParameterService::ValidateParameterSet(ParameterSet).IsValid());
 
 	// Assert negative and unnormalized weights produce blocking findings.
-	ParameterSet.ExposurePassWeight = -0.1;
+	ParameterSet.Channel(EAEExposureChannel::Pass).Weight = -0.1;
 	TestFalse(TEXT("Negative weight fails"), FAEM3ParameterService::ValidateParameterSet(ParameterSet).IsValid());
 	ParameterSet = AdaptiveEnvM3Tests::MakeValidParameters();
-	ParameterSet.ExposurePassWeight = 0.1;
+	ParameterSet.Channel(EAEExposureChannel::Pass).Weight = 0.1;
 	TestFalse(TEXT("Incorrect weight sum fails"), FAEM3ParameterService::ValidateParameterSet(ParameterSet).IsValid());
 	return true;
 }
@@ -195,10 +169,10 @@ bool FAEM3ThresholdContractTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("Ordered thresholds validate"), FAEM3ParameterService::ValidateParameterSet(ParameterSet).IsValid());
 
 	// Assert reversed and degenerate threshold relationships are rejected.
-	ParameterSet.RecoveryActivationExposure = 0.6;
+	ParameterSet.RecoveryResponse.ActivationExposure = 0.6;
 	TestFalse(TEXT("Recovery above Damage activation fails"), FAEM3ParameterService::ValidateParameterSet(ParameterSet).IsValid());
 	ParameterSet = AdaptiveEnvM3Tests::MakeValidParameters();
-	ParameterSet.DamageSaturationExposure = ParameterSet.DamageActivationExposure;
+	ParameterSet.DamageResponse.SaturationExposure = ParameterSet.DamageResponse.ActivationExposure;
 	TestFalse(TEXT("Degenerate Damage ramp fails"), FAEM3ParameterService::ValidateParameterSet(ParameterSet).IsValid());
 	return true;
 }
@@ -216,12 +190,12 @@ bool FAEM3CumulativeDeltaTest::RunTest(const FString& Parameters)
 	FAEExposureGrid ExposureGrid;
 	TestTrue(TEXT("Grids initialize"), AdaptiveEnvM3Tests::InitializeGrids(RawGrid, ExposureGrid));
 	FAEM3ParameterSet ParameterSet = AdaptiveEnvM3Tests::MakeValidParameters();
-	ParameterSet.ExposurePassWeight = 1.0;
-	ParameterSet.ExposureTravelDistanceWeight = 0.0;
-	ParameterSet.ExposureDwellWeight = 0.0;
-	ParameterSet.ExposureSprintWeight = 0.0;
-	ParameterSet.ExposureCollectEventWeight = 0.0;
-	ParameterSet.ExposureCombatEventWeight = 0.0;
+	ParameterSet.Channel(EAEExposureChannel::Pass).Weight = 1.0;
+	ParameterSet.Channel(EAEExposureChannel::Travel).Weight = 0.0;
+	ParameterSet.Channel(EAEExposureChannel::Dwell).Weight = 0.0;
+	ParameterSet.Channel(EAEExposureChannel::Sprint).Weight = 0.0;
+	ParameterSet.Channel(EAEExposureChannel::Collect).Weight = 0.0;
+	ParameterSet.Channel(EAEExposureChannel::Combat).Weight = 0.0;
 	AdaptiveEnvM3Tests::AddPass(RawGrid);
 	const TArray<int32> Dirty = RawGrid.GetDirtyCellIndices();
 
@@ -250,12 +224,12 @@ bool FAEM3SprintTravelTest::RunTest(const FString& Parameters)
 	FAEExposureGrid ExposureGrid;
 	TestTrue(TEXT("Grids initialize"), AdaptiveEnvM3Tests::InitializeGrids(RawGrid, ExposureGrid));
 	FAEM3ParameterSet ParameterSet = AdaptiveEnvM3Tests::MakeValidParameters();
-	ParameterSet.ExposurePassWeight = 0.0;
-	ParameterSet.ExposureTravelDistanceWeight = 0.5;
-	ParameterSet.ExposureDwellWeight = 0.0;
-	ParameterSet.ExposureSprintWeight = 0.5;
-	ParameterSet.ExposureCollectEventWeight = 0.0;
-	ParameterSet.ExposureCombatEventWeight = 0.0;
+	ParameterSet.Channel(EAEExposureChannel::Pass).Weight = 0.0;
+	ParameterSet.Channel(EAEExposureChannel::Travel).Weight = 0.5;
+	ParameterSet.Channel(EAEExposureChannel::Dwell).Weight = 0.0;
+	ParameterSet.Channel(EAEExposureChannel::Sprint).Weight = 0.5;
+	ParameterSet.Channel(EAEExposureChannel::Collect).Weight = 0.0;
+	ParameterSet.Channel(EAEExposureChannel::Combat).Weight = 0.0;
 	AdaptiveEnvM3Tests::AddSprint(RawGrid, 1.0f);
 
 	// Assert Sprint contributes while non-sprint Travel remains zero.
@@ -281,14 +255,14 @@ bool FAEM3HalfLifeTest::RunTest(const FString& Parameters)
 	FAEExposureGrid ExposureGrid;
 	TestTrue(TEXT("Grids initialize"), AdaptiveEnvM3Tests::InitializeGrids(RawGrid, ExposureGrid));
 	FAEM3ParameterSet ParameterSet = AdaptiveEnvM3Tests::MakeValidParameters();
-	ParameterSet.ExposurePassWeight = 1.0;
-	ParameterSet.ExposureTravelDistanceWeight = 0.0;
-	ParameterSet.ExposureDwellWeight = 0.0;
-	ParameterSet.ExposureSprintWeight = 0.0;
-	ParameterSet.ExposureCollectEventWeight = 0.0;
-	ParameterSet.ExposureCombatEventWeight = 0.0;
-	ParameterSet.DamageMaximumRatePerSimulationHour = 0.0;
-	ParameterSet.RecoveryBaseRatePerSimulationHour = 0.0;
+	ParameterSet.Channel(EAEExposureChannel::Pass).Weight = 1.0;
+	ParameterSet.Channel(EAEExposureChannel::Travel).Weight = 0.0;
+	ParameterSet.Channel(EAEExposureChannel::Dwell).Weight = 0.0;
+	ParameterSet.Channel(EAEExposureChannel::Sprint).Weight = 0.0;
+	ParameterSet.Channel(EAEExposureChannel::Collect).Weight = 0.0;
+	ParameterSet.Channel(EAEExposureChannel::Combat).Weight = 0.0;
+	ParameterSet.DamageResponse.MaximumRatePerSimulationHour = 0.0;
+	ParameterSet.RecoveryResponse.BaseRatePerSimulationHour = 0.0;
 	AdaptiveEnvM3Tests::AddPass(RawGrid);
 	ExposureGrid.Update(RawGrid, RawGrid.GetDirtyCellIndices(), 0.0, 0.0, RawGrid.GetBehaviourRevision(), ParameterSet);
 
@@ -377,17 +351,17 @@ bool FAEM3DamageResponseTest::RunTest(const FString& Parameters)
 	FAEExposureGrid ExposureGrid;
 	TestTrue(TEXT("Grids initialize"), AdaptiveEnvM3Tests::InitializeGrids(RawGrid, ExposureGrid));
 	FAEM3ParameterSet ParameterSet = AdaptiveEnvM3Tests::MakeValidParameters();
-	ParameterSet.ExposurePassReferenceCount = 2.0;
-	ParameterSet.ExposurePassWeight = 1.0;
-	ParameterSet.ExposureTravelDistanceWeight = 0.0;
-	ParameterSet.ExposureDwellWeight = 0.0;
-	ParameterSet.ExposureSprintWeight = 0.0;
-	ParameterSet.ExposureCollectEventWeight = 0.0;
-	ParameterSet.ExposureCombatEventWeight = 0.0;
-	ParameterSet.ExposureHalfLifeSimulationHours = 1000000.0;
-	ParameterSet.DamageActivationExposure = 0.25;
-	ParameterSet.DamageSaturationExposure = 0.75;
-	ParameterSet.DamageMaximumRatePerSimulationHour = 0.2;
+	ParameterSet.Channel(EAEExposureChannel::Pass).ReferenceValue = 2.0;
+	ParameterSet.Channel(EAEExposureChannel::Pass).Weight = 1.0;
+	ParameterSet.Channel(EAEExposureChannel::Travel).Weight = 0.0;
+	ParameterSet.Channel(EAEExposureChannel::Dwell).Weight = 0.0;
+	ParameterSet.Channel(EAEExposureChannel::Sprint).Weight = 0.0;
+	ParameterSet.Channel(EAEExposureChannel::Collect).Weight = 0.0;
+	ParameterSet.Channel(EAEExposureChannel::Combat).Weight = 0.0;
+	ParameterSet.ExposureDynamics.HalfLifeSimulationHours = 1000000.0;
+	ParameterSet.DamageResponse.ActivationExposure = 0.25;
+	ParameterSet.DamageResponse.SaturationExposure = 0.75;
+	ParameterSet.DamageResponse.MaximumRatePerSimulationHour = 0.2;
 	AdaptiveEnvM3Tests::AddPass(RawGrid);
 
 	// Integrate one simulated hour and assert midpoint rate and bounded state.
@@ -412,18 +386,18 @@ bool FAEM3RecoveryDelayTest::RunTest(const FString& Parameters)
 	FAEExposureGrid ExposureGrid;
 	TestTrue(TEXT("Grids initialize"), AdaptiveEnvM3Tests::InitializeGrids(RawGrid, ExposureGrid));
 	FAEM3ParameterSet ParameterSet = AdaptiveEnvM3Tests::MakeValidParameters();
-	ParameterSet.ExposurePassWeight = 1.0;
-	ParameterSet.ExposureTravelDistanceWeight = 0.0;
-	ParameterSet.ExposureDwellWeight = 0.0;
-	ParameterSet.ExposureSprintWeight = 0.0;
-	ParameterSet.ExposureCollectEventWeight = 0.0;
-	ParameterSet.ExposureCombatEventWeight = 0.0;
-	ParameterSet.ExposureHalfLifeSimulationHours = 0.01;
-	ParameterSet.DamageActivationExposure = 0.2;
-	ParameterSet.DamageSaturationExposure = 0.8;
-	ParameterSet.DamageMaximumRatePerSimulationHour = 1.0;
-	ParameterSet.RecoveryDelaySimulationHours = 1.0;
-	ParameterSet.RecoveryBaseRatePerSimulationHour = 0.2;
+	ParameterSet.Channel(EAEExposureChannel::Pass).Weight = 1.0;
+	ParameterSet.Channel(EAEExposureChannel::Travel).Weight = 0.0;
+	ParameterSet.Channel(EAEExposureChannel::Dwell).Weight = 0.0;
+	ParameterSet.Channel(EAEExposureChannel::Sprint).Weight = 0.0;
+	ParameterSet.Channel(EAEExposureChannel::Collect).Weight = 0.0;
+	ParameterSet.Channel(EAEExposureChannel::Combat).Weight = 0.0;
+	ParameterSet.ExposureDynamics.HalfLifeSimulationHours = 0.01;
+	ParameterSet.DamageResponse.ActivationExposure = 0.2;
+	ParameterSet.DamageResponse.SaturationExposure = 0.8;
+	ParameterSet.DamageResponse.MaximumRatePerSimulationHour = 1.0;
+	ParameterSet.RecoveryResponse.DelaySimulationHours = 1.0;
+	ParameterSet.RecoveryResponse.BaseRatePerSimulationHour = 0.2;
 	AdaptiveEnvM3Tests::AddPass(RawGrid);
 	ExposureGrid.Update(RawGrid, RawGrid.GetDirtyCellIndices(), 0.5, 0.5, RawGrid.GetBehaviourRevision(), ParameterSet);
 	FAEM3CellSnapshot Damaged;
@@ -509,12 +483,12 @@ bool FAEM3DebugRangeQueryTest::RunTest(const FString& Parameters)
 		}
 	}
 	FAEM3ParameterSet ParameterSet = AdaptiveEnvM3Tests::MakeValidParameters();
-	ParameterSet.ExposurePassWeight = 1.0;
-	ParameterSet.ExposureTravelDistanceWeight = 0.0;
-	ParameterSet.ExposureDwellWeight = 0.0;
-	ParameterSet.ExposureSprintWeight = 0.0;
-	ParameterSet.ExposureCollectEventWeight = 0.0;
-	ParameterSet.ExposureCombatEventWeight = 0.0;
+	ParameterSet.Channel(EAEExposureChannel::Pass).Weight = 1.0;
+	ParameterSet.Channel(EAEExposureChannel::Travel).Weight = 0.0;
+	ParameterSet.Channel(EAEExposureChannel::Dwell).Weight = 0.0;
+	ParameterSet.Channel(EAEExposureChannel::Sprint).Weight = 0.0;
+	ParameterSet.Channel(EAEExposureChannel::Collect).Weight = 0.0;
+	ParameterSet.Channel(EAEExposureChannel::Combat).Weight = 0.0;
 	TestTrue(TEXT("M3 update succeeds"), ExposureGrid.Update(
 		RawGrid, RawGrid.GetDirtyCellIndices(), 0.0, 0.0, RawGrid.GetBehaviourRevision(), ParameterSet));
 

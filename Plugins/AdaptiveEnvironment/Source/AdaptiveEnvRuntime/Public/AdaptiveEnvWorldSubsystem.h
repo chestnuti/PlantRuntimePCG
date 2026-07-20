@@ -3,12 +3,13 @@
 #include "CoreMinimal.h"
 #include "AEExposureGrid.h"
 #include "AEHeatmapGrid.h"
+#include "AEM4Types.h"
 #include "Subsystems/WorldSubsystem.h"
 #include "AdaptiveEnvWorldSubsystem.generated.h"
 
 class UAEBehaviourTrackerComponent;
 class UAEHeatmapRendererComponent;
-class UAEParameterSynthesisAsset;
+class UAEPublishedParameterBundleAsset;
 
 UCLASS()
 class ADAPTIVEENVRUNTIME_API UAEAdaptiveEnvWorldSubsystem final : public UTickableWorldSubsystem
@@ -96,9 +97,13 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Adaptive Environment|M3")
 	bool IsM3Enabled() const { return bM3Enabled; }
 
-	/* Validates and atomically applies one M2 parameter package, then rebuilds M3 from current raw totals. */
-	UFUNCTION(BlueprintCallable, Category = "Adaptive Environment|M3")
-	bool ApplyM3ParameterPackage(UAEParameterSynthesisAsset* Package, FString& OutError);
+	/* Returns whether M4 has a complete validated parameter snapshot. */
+	UFUNCTION(BlueprintPure, Category = "Adaptive Environment|M4")
+	bool IsM4Enabled() const { return bM4Enabled; }
+
+	/* Validates and atomically applies one complete M3/M4 published parameter bundle. */
+	UFUNCTION(BlueprintCallable, Category = "Adaptive Environment|Parameters")
+	bool ApplyParameterBundle(UAEPublishedParameterBundleAsset* Bundle, FString& OutError);
 
 	/* Reads one M3 Cell by integer XY coordinate. */
 	UFUNCTION(BlueprintPure, Category = "Adaptive Environment|M3")
@@ -153,10 +158,12 @@ private:
 	FAEHeatmapGrid BehaviourGrid;
 	/* Owns derived M3 Exposure and ecological response state aligned with the raw Grid. */
 	FAEExposureGrid ExposureGrid;
-	/* Stores the immutable validated M3 effective parameter snapshot. */
-	FAEM3ParameterSet M3Parameters;
+	/* Stores the atomically committed bundle identity and grouped M3/M4 parameter values. */
+	FAEActiveParameterSnapshot ActiveParameters;
 	/* Controls M3 updates independently from the valid M1 runtime pipeline. */
 	bool bM3Enabled = false;
+	/* Controls M4 decisions independently while sharing the active bundle snapshot. */
+	bool bM4Enabled = false;
 	/* Converts one real second into simulated hours for M3 integration. */
 	double SimulationHoursPerRealSecond = 0.0;
 	/* Accumulates render time awaiting fixed behaviour steps. */

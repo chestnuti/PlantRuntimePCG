@@ -124,7 +124,7 @@ bool FAEExposureGrid::Update(
 		// Decay accumulated Exposure using simulated hours only.
 		if (Cell.CurrentExposure > 0.0 && DeltaSimulationHours > 0.0)
 		{
-			Cell.CurrentExposure *= FMath::Pow(2.0, -DeltaSimulationHours / Parameters.ExposureHalfLifeSimulationHours);
+			Cell.CurrentExposure *= FMath::Pow(2.0, -DeltaSimulationHours / Parameters.ExposureDynamics.HalfLifeSimulationHours);
 			if (Cell.CurrentExposure <= AEExposureGridPrivate::StateEpsilon)
 			{
 				Cell.CurrentExposure = 0.0;
@@ -164,20 +164,20 @@ bool FAEExposureGrid::Update(
 				const double DeltaNormalTravel = FMath::Max(DeltaTravel - DeltaSprint, 0.0);
 
 				// Normalize six interpretable components before applying explicit M2 weights.
-				Cell.PassExposure = AEExposureGridPrivate::Normalize(DeltaPass, Parameters.ExposurePassReferenceCount);
-				Cell.TravelExposure = AEExposureGridPrivate::Normalize(DeltaNormalTravel, Parameters.ExposureTravelDistanceReferenceMeters);
-				Cell.DwellExposure = AEExposureGridPrivate::Normalize(DeltaDwell, Parameters.ExposureDwellReferenceSeconds);
-				Cell.SprintExposure = AEExposureGridPrivate::Normalize(DeltaSprint, Parameters.ExposureSprintDistanceReferenceMeters);
-				Cell.CollectExposure = AEExposureGridPrivate::Normalize(DeltaCollect, Parameters.ExposureCollectEventReferenceCount);
-				Cell.CombatExposure = AEExposureGridPrivate::Normalize(DeltaCombat, Parameters.ExposureCombatEventReferenceCount);
+				Cell.PassExposure = AEExposureGridPrivate::Normalize(DeltaPass, Parameters.Channel(EAEExposureChannel::Pass).ReferenceValue);
+				Cell.TravelExposure = AEExposureGridPrivate::Normalize(DeltaNormalTravel, Parameters.Channel(EAEExposureChannel::Travel).ReferenceValue);
+				Cell.DwellExposure = AEExposureGridPrivate::Normalize(DeltaDwell, Parameters.Channel(EAEExposureChannel::Dwell).ReferenceValue);
+				Cell.SprintExposure = AEExposureGridPrivate::Normalize(DeltaSprint, Parameters.Channel(EAEExposureChannel::Sprint).ReferenceValue);
+				Cell.CollectExposure = AEExposureGridPrivate::Normalize(DeltaCollect, Parameters.Channel(EAEExposureChannel::Collect).ReferenceValue);
+				Cell.CombatExposure = AEExposureGridPrivate::Normalize(DeltaCombat, Parameters.Channel(EAEExposureChannel::Combat).ReferenceValue);
 				const double Increment =
-					Cell.PassExposure * Parameters.ExposurePassWeight
-					+ Cell.TravelExposure * Parameters.ExposureTravelDistanceWeight
-					+ Cell.DwellExposure * Parameters.ExposureDwellWeight
-					+ Cell.SprintExposure * Parameters.ExposureSprintWeight
-					+ Cell.CollectExposure * Parameters.ExposureCollectEventWeight
-					+ Cell.CombatExposure * Parameters.ExposureCombatEventWeight;
-				Cell.CurrentExposure = FMath::Clamp(Cell.CurrentExposure + Increment, 0.0, Parameters.ExposureMaximum);
+					Cell.PassExposure * Parameters.Channel(EAEExposureChannel::Pass).Weight
+					+ Cell.TravelExposure * Parameters.Channel(EAEExposureChannel::Travel).Weight
+					+ Cell.DwellExposure * Parameters.Channel(EAEExposureChannel::Dwell).Weight
+					+ Cell.SprintExposure * Parameters.Channel(EAEExposureChannel::Sprint).Weight
+					+ Cell.CollectExposure * Parameters.Channel(EAEExposureChannel::Collect).Weight
+					+ Cell.CombatExposure * Parameters.Channel(EAEExposureChannel::Combat).Weight;
+				Cell.CurrentExposure = FMath::Clamp(Cell.CurrentExposure + Increment, 0.0, Parameters.ExposureDynamics.Maximum);
 				Cell.LastConsumedRawTotals = CurrentTotals;
 			}
 			Cell.SourceBehaviourRevision = BehaviourRevision;
@@ -190,12 +190,12 @@ bool FAEExposureGrid::Update(
 		{
 			Cell.LowExposureDurationSimulationHours = 0.0;
 		}
-		else if (Cell.CurrentExposure < Parameters.RecoveryActivationExposure)
+		else if (Cell.CurrentExposure < Parameters.RecoveryResponse.ActivationExposure)
 		{
 			Cell.LowExposureDurationSimulationHours += DeltaSimulationHours;
-			if (Cell.LowExposureDurationSimulationHours + UE_DOUBLE_SMALL_NUMBER >= Parameters.RecoveryDelaySimulationHours)
+			if (Cell.LowExposureDurationSimulationHours + UE_DOUBLE_SMALL_NUMBER >= Parameters.RecoveryResponse.DelaySimulationHours)
 			{
-				Cell.RecoveryRatePerSimulationHour = Parameters.RecoveryBaseRatePerSimulationHour;
+				Cell.RecoveryRatePerSimulationHour = Parameters.RecoveryResponse.BaseRatePerSimulationHour;
 			}
 		}
 		else
@@ -399,17 +399,17 @@ bool FAEExposureGrid::HasRawRegression(const FAERawBehaviourTotals& Current, con
 /* Evaluate the zero-at-activation piecewise-linear first-version Damage curve. */
 double FAEExposureGrid::EvaluateDamageRate(const double Exposure, const FAEM3ParameterSet& Parameters)
 {
-	if (Exposure <= Parameters.DamageActivationExposure)
+	if (Exposure <= Parameters.DamageResponse.ActivationExposure)
 	{
 		return 0.0;
 	}
-	if (Exposure >= Parameters.DamageSaturationExposure)
+	if (Exposure >= Parameters.DamageResponse.SaturationExposure)
 	{
-		return Parameters.DamageMaximumRatePerSimulationHour;
+		return Parameters.DamageResponse.MaximumRatePerSimulationHour;
 	}
-	const double Alpha = (Exposure - Parameters.DamageActivationExposure)
-		/ (Parameters.DamageSaturationExposure - Parameters.DamageActivationExposure);
-	return Alpha * Parameters.DamageMaximumRatePerSimulationHour;
+	const double Alpha = (Exposure - Parameters.DamageResponse.ActivationExposure)
+		/ (Parameters.DamageResponse.SaturationExposure - Parameters.DamageResponse.ActivationExposure);
+	return Alpha * Parameters.DamageResponse.MaximumRatePerSimulationHour;
 }
 
 /* Copy internal state into one immutable Blueprint-readable snapshot. */

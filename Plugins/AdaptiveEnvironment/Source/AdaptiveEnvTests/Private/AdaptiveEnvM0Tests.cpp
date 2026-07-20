@@ -2,7 +2,8 @@
 
 #if WITH_DEV_AUTOMATION_TESTS
 
-#include "AdaptiveEnvDataAssets.h"
+#include "AEExperimentConfig.h"
+#include "AEPublishedParameterBundleAsset.h"
 #include "AdaptiveEnvGameplayTags.h"
 #include "AdaptiveEnvSettings.h"
 #include "AdaptiveEnvWorldSubsystem.h"
@@ -44,8 +45,9 @@ bool FAESettingsDefaultsTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("Grid height is positive"), Settings->GridHeight > 0);
 	TestTrue(TEXT("Cell size is positive"), Settings->CellSizeCm > 0.0f);
 	TestTrue(TEXT("M3 enabled by default"), Settings->bEnableM3);
-	TestTrue(TEXT("Default M3 package remains explicitly unassigned"), Settings->M3ParameterPackage.IsNull());
-	TestEqual(TEXT("Settings schema"), Settings->SettingsSchemaVersion, 4);
+	TestTrue(TEXT("M4 enabled by default"), Settings->bEnableM4);
+	TestTrue(TEXT("Default parameter bundle remains explicitly unassigned"), Settings->ParameterBundle.IsNull());
+	TestEqual(TEXT("Settings schema"), Settings->SettingsSchemaVersion, 5);
 	TestTrue(TEXT("Debug text budget reserves engine capacity"), Settings->MaxDebugTextLabels >= 0 && Settings->MaxDebugTextLabels <= 96);
 	return true;
 }
@@ -55,19 +57,17 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	"AdaptiveEnv.M0.DataAssetSchema",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
-// Verify default versions and deterministic values for research Data Assets.
+// Verify default versions and deterministic values for runtime Data Assets.
 bool FAEDataAssetSchemaTest::RunTest(const FString& Parameters)
 {
 	// Create transient assets without loading project content.
-	const UAELiteratureEvidenceAsset* Evidence = NewObject<UAELiteratureEvidenceAsset>();
-	const UAEParameterSynthesisAsset* ParametersAsset = NewObject<UAEParameterSynthesisAsset>();
+	const UAEPublishedParameterBundleAsset* ParametersAsset = NewObject<UAEPublishedParameterBundleAsset>();
 	const UAEExperimentConfig* Experiment = NewObject<UAEExperimentConfig>();
 
-	// Assert schema, semantic version, and experiment seed defaults.
-	TestEqual(TEXT("Evidence schema"), Evidence->SchemaVersion, 2);
-	TestEqual(TEXT("Parameter schema"), ParametersAsset->Metadata.SchemaVersion, 2);
-	TestEqual(TEXT("Experiment schema"), Experiment->SchemaVersion, 1);
-	TestEqual(TEXT("Semantic version"), ParametersAsset->Metadata.SemanticVersion, FString(TEXT("1.0.0")));
+	// Assert bundle format, schema, experiment schema, and deterministic seed defaults.
+	TestEqual(TEXT("Bundle format"), ParametersAsset->Format, FString(TEXT("AdaptiveEnv.ParameterBundle")));
+	TestEqual(TEXT("Bundle schema"), ParametersAsset->SchemaVersion, 1);
+	TestEqual(TEXT("Experiment schema"), Experiment->SchemaVersion, 2);
 	TestEqual(TEXT("Default seed"), Experiment->RandomSeed, 1337);
 	return true;
 }

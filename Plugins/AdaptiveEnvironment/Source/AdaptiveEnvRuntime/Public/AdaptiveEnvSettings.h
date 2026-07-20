@@ -4,7 +4,7 @@
 #include "Engine/DeveloperSettings.h"
 #include "AdaptiveEnvSettings.generated.h"
 
-class UAEParameterSynthesisAsset;
+class UAEPublishedParameterBundleAsset;
 
 UCLASS(Config = AdaptiveEnvironment, DefaultConfig, meta = (DisplayName = "Adaptive Environment"))
 class ADAPTIVEENVRUNTIME_API UAdaptiveEnvSettings final : public UDeveloperSettings
@@ -22,13 +22,17 @@ public:
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Runtime")
 	bool bEnableRuntime = true;
 
-	/* Enables M3 Exposure and ecological response when a valid parameter package is configured. */
-	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "M3")
+	/* Enables M3 Exposure and ecological response when a valid parameter bundle is configured. */
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Parameters")
 	bool bEnableM3 = true;
 
-	/* References the versioned M2 package that supplies all first-version M3 parameters. */
-	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "M3")
-	TSoftObjectPtr<UAEParameterSynthesisAsset> M3ParameterPackage;
+	/* Enables M4 constraint and state decisions from the same validated parameter snapshot. */
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Parameters")
+	bool bEnableM4 = true;
+
+	/* References the single published bundle that atomically supplies M3 and M4 parameters. */
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Parameters")
+	TSoftObjectPtr<UAEPublishedParameterBundleAsset> ParameterBundle;
 
 	/* Controls behaviour sampling frequency in samples per second. */
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Runtime", meta = (ClampMin = "1.0", UIMin = "1.0"))
@@ -104,5 +108,5 @@ public:
 
 	/* Identifies the serialized settings schema version. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Version")
-	int32 SettingsSchemaVersion = 4;
+	int32 SettingsSchemaVersion = 5;
 };

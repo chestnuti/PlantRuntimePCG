@@ -1,20 +1,18 @@
 using UnrealBuildTool;
 
-public class AdaptiveEnvTests : ModuleRules
+public class AdaptiveEnvEditor : ModuleRules
 {
-	public AdaptiveEnvTests(ReadOnlyTargetRules Target) : base(Target)
+	public AdaptiveEnvEditor(ReadOnlyTargetRules Target) : base(Target)
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
-
 		PrivateDependencyModuleNames.AddRange(new[]
 		{
 			"Core",
 			"CoreUObject",
 			"Engine",
-			"GameplayTags",
+			"Json",
 			"UnrealEd",
-			"AdaptiveEnvRuntime",
-			"AdaptiveEnvEditor"
+			"AdaptiveEnvRuntime"
 		});
 	}
 }

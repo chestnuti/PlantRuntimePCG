@@ -2,8 +2,10 @@
 
 #include "AEBehaviourTrackerComponent.h"
 #include "AEHeatmapRendererComponent.h"
+#include "AEParameterBundleService.h"
 #include "AEM3ParameterService.h"
-#include "AdaptiveEnvDataAssets.h"
+#include "AEM4ParameterService.h"
+#include "AEPublishedParameterBundleAsset.h"
 #include "AdaptiveEnvGameplayTags.h"
 #include "AdaptiveEnvLog.h"
 #include "AdaptiveEnvSettings.h"
@@ -41,22 +43,28 @@ void UAEAdaptiveEnvWorldSubsystem::Initialize(FSubsystemCollectionBase& Collecti
 		UE_LOG(LogAdaptiveEnv, Error, TEXT("M3 grid initialization failed."));
 	}
 
-	// Load M3 parameters without disabling the validated M1 pipeline when no package is published.
+	// Load one atomic M3/M4 bundle without disabling the validated M1 pipeline when absent.
 	bM3Enabled = false;
-	if (bRuntimeEnabled && Settings->bEnableM3)
+	bM4Enabled = false;
+	if (bRuntimeEnabled && (Settings->bEnableM3 || Settings->bEnableM4))
 	{
-		UAEParameterSynthesisAsset* Package = Settings->M3ParameterPackage.LoadSynchronous();
-		if (Package != nullptr)
+		UAEPublishedParameterBundleAsset* Bundle = Settings->ParameterBundle.LoadSynchronous();
+		if (Bundle != nullptr)
 		{
 			FString Error;
-			if (!ApplyM3ParameterPackage(Package, Error))
+			if (!ApplyParameterBundle(Bundle, Error))
 			{
-				UE_LOG(LogAdaptiveEnv, Error, TEXT("M3 parameter initialization failed. World=%s Error=%s"), *GetNameSafe(GetWorld()), *Error);
+				UE_LOG(LogAdaptiveEnv, Error, TEXT("Parameter bundle initialization failed. World=%s Error=%s"), *GetNameSafe(GetWorld()), *Error);
+			}
+			else
+			{
+				bM3Enabled = Settings->bEnableM3;
+				bM4Enabled = Settings->bEnableM4;
 			}
 		}
 		else
 		{
-			UE_LOG(LogAdaptiveEnv, Log, TEXT("M3 disabled because no parameter package is configured. World=%s"), *GetNameSafe(GetWorld()));
+			UE_LOG(LogAdaptiveEnv, Log, TEXT("M3 and M4 disabled because no parameter bundle is configured. World=%s"), *GetNameSafe(GetWorld()));
 		}
 	}
 
@@ -95,6 +103,7 @@ void UAEAdaptiveEnvWorldSubsystem::Deinitialize()
 	BehaviourGrid.Reset();
 	ExposureGrid.Reset();
 	bM3Enabled = false;
+	bM4Enabled = false;
 	Super::Deinitialize();
 }
 
@@ -303,41 +312,58 @@ void UAEAdaptiveEnvWorldSubsystem::ResetBehaviourGrid()
 	}
 }
 
-/* Validate and atomically apply one complete M3 effective parameter snapshot. */
-bool UAEAdaptiveEnvWorldSubsystem::ApplyM3ParameterPackage(UAEParameterSynthesisAsset* Package, FString& OutError)
+/* Validates and atomically applies one complete M3/M4 published parameter bundle. */
+bool UAEAdaptiveEnvWorldSubsystem::ApplyParameterBundle(UAEPublishedParameterBundleAsset* Bundle, FString& OutError)
 {
 	check(IsInGameThread());
 	OutError.Reset();
-	if (!IsValid(Package))
+	if (!IsValid(Bundle))
 	{
-		OutError = TEXT("M3 parameter package is null or invalid.");
+		OutError = TEXT("Published parameter bundle is null or invalid.");
 		return false;
 	}
 
-	// Build a temporary snapshot so failure cannot corrupt the currently active contract.
-	FAEM3ParameterSet Candidate;
-	const FAEM3ValidationResult Result = FAEM3ParameterService::BuildParameterSet(*Package, Candidate);
-	if (!Result.IsValid())
+	// Validate the complete transport contract before constructing either model snapshot.
+	const FAEParameterBundleValidationResult BundleResult = FAEParameterBundleService::ValidateBundle(*Bundle);
+	if (!BundleResult.IsValid())
 	{
-		OutError = Result.ToString();
+		OutError = BundleResult.ToString();
 		return false;
 	}
+	FAEParameterBlockView M3Block;
+	FAEParameterBlockView M4Block;
+	FAEParameterBundleService::FindBlock(*Bundle, FAEParameterBundleService::M3ModelContract(), M3Block);
+	FAEParameterBundleService::FindBlock(*Bundle, FAEParameterBundleService::M4ModelContract(), M4Block);
+	FAEActiveParameterSnapshot Candidate;
+	Candidate.BundleIdentity = { Bundle->BundleId, Bundle->SemanticVersion, Bundle->ContentHash };
+	const FAEM3ValidationResult M3Result = FAEM3ParameterService::BuildParameterSet(M3Block, Candidate.BundleIdentity, Candidate.M3);
+	const FAEM4ValidationResult M4Result = FAEM4ParameterService::BuildParameterSet(M4Block, Candidate.BundleIdentity, Candidate.M4);
+	if (!M3Result.IsValid() || !M4Result.IsValid())
+	{
+		OutError = FString::Printf(TEXT("M3=[%s] M4=[%s]"), *M3Result.ToString(), *M4Result.ToString());
+		return false;
+	}
+	Candidate.M3BlockId = M3Block.Block->BlockId;
+	Candidate.M3BlockVersion = M3Block.Block->BlockVersion;
+	Candidate.M3BlockHash = M3Block.Block->BlockHash;
+	Candidate.M4BlockId = M4Block.Block->BlockId;
+	Candidate.M4BlockVersion = M4Block.Block->BlockVersion;
+	Candidate.M4BlockHash = M4Block.Block->BlockHash;
 
-	// Commit at the Game Thread boundary and rebuild derived state from current raw totals.
-	const FString PreviousVersion = M3Parameters.SemanticVersion;
-	const FString PreviousHash = M3Parameters.ContentHash;
-	M3Parameters = MoveTemp(Candidate);
+	// Commit both model parameter sets together at the Game Thread boundary.
+	const FString PreviousHash = ActiveParameters.BundleIdentity.ContentHash;
+	ActiveParameters = MoveTemp(Candidate);
 	bM3Enabled = true;
+	bM4Enabled = true;
 	RebuildM3FromCurrentRawGrid();
 	UE_LOG(
 		LogAdaptiveEnv,
 		Log,
-		TEXT("M3 parameter package applied. World=%s OldVersion=%s OldHash=%s NewVersion=%s NewHash=%s"),
+		TEXT("Published parameter bundle applied. World=%s OldHash=%s NewVersion=%s NewHash=%s"),
 		*GetNameSafe(GetWorld()),
-		*PreviousVersion,
 		*PreviousHash,
-		*M3Parameters.SemanticVersion,
-		*M3Parameters.ContentHash);
+		*ActiveParameters.BundleIdentity.SemanticVersion,
+		*ActiveParameters.BundleIdentity.ContentHash);
 	return true;
 }
 
@@ -380,11 +406,11 @@ float UAEAdaptiveEnvWorldSubsystem::GetM3DebugMaximumValue(const EAEHeatmapDebug
 	switch (Mode)
 	{
 	case EAEHeatmapDebugMode::CurrentExposure:
-		return static_cast<float>(M3Parameters.ExposureMaximum);
+		return static_cast<float>(ActiveParameters.M3.ExposureDynamics.Maximum);
 	case EAEHeatmapDebugMode::DamageRate:
-		return static_cast<float>(M3Parameters.DamageMaximumRatePerSimulationHour);
+		return static_cast<float>(ActiveParameters.M3.DamageResponse.MaximumRatePerSimulationHour);
 	case EAEHeatmapDebugMode::RecoveryRate:
-		return static_cast<float>(M3Parameters.RecoveryBaseRatePerSimulationHour);
+		return static_cast<float>(ActiveParameters.M3.RecoveryResponse.BaseRatePerSimulationHour);
 	case EAEHeatmapDebugMode::PassExposure:
 	case EAEHeatmapDebugMode::TravelExposure:
 	case EAEHeatmapDebugMode::DwellExposure:
@@ -498,7 +524,7 @@ void UAEAdaptiveEnvWorldSubsystem::UpdateM3(const float StepSeconds)
 		SimulationTimeHours,
 		DeltaSimulationHours,
 		BehaviourGrid.GetBehaviourRevision(),
-		M3Parameters))
+		ActiveParameters.M3))
 	{
 		bM3Enabled = false;
 		UE_LOG(LogAdaptiveEnv, Error, TEXT("M3 update failed and was disabled. World=%s BehaviourRevision=%llu"), *GetNameSafe(GetWorld()), BehaviourGrid.GetBehaviourRevision());
@@ -514,7 +540,7 @@ void UAEAdaptiveEnvWorldSubsystem::RebuildM3FromCurrentRawGrid()
 		return;
 	}
 
-	// Treat every row-major Cell as dirty so current raw totals are consumed once under the new package.
+	// Treat every row-major Cell as dirty so current raw totals are consumed once under the new bundle.
 	const FIntPoint Dimensions = BehaviourGrid.GetConfig().Dimensions;
 	const int32 CellCount = Dimensions.X * Dimensions.Y;
 	TArray<int32> AllCellIndices;
@@ -530,7 +556,7 @@ void UAEAdaptiveEnvWorldSubsystem::RebuildM3FromCurrentRawGrid()
 		SimulationTimeHours,
 		0.0,
 		BehaviourGrid.GetBehaviourRevision(),
-		M3Parameters))
+		ActiveParameters.M3))
 	{
 		bM3Enabled = false;
 	}

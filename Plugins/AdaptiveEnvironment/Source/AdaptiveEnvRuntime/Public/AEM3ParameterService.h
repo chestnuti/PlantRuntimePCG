@@ -3,7 +3,8 @@
 #include "CoreMinimal.h"
 #include "AEM3Types.h"
 
-class UAEParameterSynthesisAsset;
+struct FAEParameterBlockView;
+struct FAEParameterBundleIdentity;
 
 /* Describes one blocking M3 parameter-contract finding. */
 struct ADAPTIVEENVRUNTIME_API FAEM3ValidationIssue
@@ -34,12 +35,12 @@ struct ADAPTIVEENVRUNTIME_API FAEM3ValidationResult
 class ADAPTIVEENVRUNTIME_API FAEM3ParameterService
 {
 public:
-	/* Loads all first-version parameters, validates identity and units, and applies cross-parameter gates. */
+	/* Maps one validated M3 block into grouped values and applies cross-parameter gates. */
 	static FAEM3ValidationResult BuildParameterSet(
-		const UAEParameterSynthesisAsset& Package,
+		const FAEParameterBlockView& Block,
+		const FAEParameterBundleIdentity& BundleIdentity,
 		FAEM3ParameterSet& OutParameterSet);
 
 	/* Validates numeric ranges and relationships on an already populated parameter set. */
 	static FAEM3ValidationResult ValidateParameterSet(const FAEM3ParameterSet& ParameterSet);
 };
-
