@@ -6,7 +6,7 @@
 
 class FAEHeatmapGrid;
 
-/* Owns deterministic per-Cell Exposure and first-version ecological response state. */
+/* Owns deterministic per-Cell Exposure state. */
 class ADAPTIVEENVRUNTIME_API FAEExposureGrid
 {
 public:
@@ -15,7 +15,7 @@ public:
 	/* Clears all M3 Cell values, active tracking, and revisions while preserving configuration. */
 	void Reset();
 
-	/* Advances dirty raw deltas, Exposure decay, Damage, and Recovery for one fixed simulated step. */
+	/* Advances dirty raw deltas and Exposure decay for one fixed simulated step. */
 	bool Update(
 		const FAEHeatmapGrid& BehaviourGrid,
 		const TArray<int32>& DirtyBehaviourCellIndices,
@@ -32,9 +32,7 @@ public:
 	void GetActiveCellsInRadius(const FVector& WorldLocation, float RadiusCm, int32 MaxCells, TArray<FAEM3CellSnapshot>& OutCells) const;
 	/* Returns the latest global Exposure revision. */
 	uint64 GetExposureRevision() const { return ExposureRevision; }
-	/* Returns the latest global ecological response revision. */
-	uint64 GetResponseRevision() const { return ResponseRevision; }
-	/* Returns the number of Cells requiring continued decay or ecological evaluation. */
+	/* Returns the number of Cells requiring continued decay. */
 	int32 GetActiveCellCount() const { return ActiveCellCount; }
 
 private:
@@ -57,20 +55,10 @@ private:
 		double CombatExposure = 0.0;
 		/* Stores accumulated and decayed Exposure. */
 		double CurrentExposure = 0.0;
-		/* Stores continuous ecological Damage from zero to one. */
-		double EcologicalDamageRatio = 0.0;
-		/* Stores the current Damage rate per simulated hour. */
-		double DamageRatePerSimulationHour = 0.0;
-		/* Stores the current Recovery rate per simulated hour. */
-		double RecoveryRatePerSimulationHour = 0.0;
-		/* Stores continuous time below the Recovery threshold in simulated hours. */
-		double LowExposureDurationSimulationHours = 0.0;
 		/* Stores the latest M1 revision consumed by this Cell. */
 		uint64 SourceBehaviourRevision = 0;
 		/* Stores the latest global Exposure revision affecting this Cell. */
 		uint64 ExposureRevision = 0;
-		/* Stores the latest global response revision affecting this Cell. */
-		uint64 ResponseRevision = 0;
 	};
 
 	/* Maps a valid XY Cell coordinate to a flat row-major index. */
@@ -83,8 +71,6 @@ private:
 	static FAERawBehaviourTotals MakeRawTotals(const FAEBehaviourCellSnapshot& Snapshot);
 	/* Returns true when any cumulative raw total moved backwards and requires a baseline reset. */
 	static bool HasRawRegression(const FAERawBehaviourTotals& Current, const FAERawBehaviourTotals& Previous);
-	/* Calculates first-version piecewise-linear Damage rate. */
-	static double EvaluateDamageRate(double Exposure, const FAEM3ParameterSet& Parameters);
 	/* Builds a public immutable snapshot from one internal Cell. */
 	FAEM3CellSnapshot MakeSnapshot(const FIntPoint& Coordinate, int32 Index) const;
 
@@ -102,6 +88,4 @@ private:
 	int32 ActiveCellCount = 0;
 	/* Increments once for each fixed step that changes any Exposure state. */
 	uint64 ExposureRevision = 0;
-	/* Increments once for each fixed step that changes any ecological response state. */
-	uint64 ResponseRevision = 0;
 };

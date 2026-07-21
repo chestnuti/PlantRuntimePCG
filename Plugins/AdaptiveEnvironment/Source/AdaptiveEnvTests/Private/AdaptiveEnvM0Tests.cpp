@@ -47,8 +47,9 @@ bool FAESettingsDefaultsTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("M3 enabled by default"), Settings->bEnableM3);
 	TestTrue(TEXT("M4 enabled by default"), Settings->bEnableM4);
 	TestTrue(TEXT("Default parameter bundle remains explicitly unassigned"), Settings->ParameterBundle.IsNull());
-	TestEqual(TEXT("Settings schema"), Settings->SettingsSchemaVersion, 5);
+	TestEqual(TEXT("Settings schema"), Settings->SettingsSchemaVersion, 7);
 	TestTrue(TEXT("Debug text budget reserves engine capacity"), Settings->MaxDebugTextLabels >= 0 && Settings->MaxDebugTextLabels <= 96);
+	TestEqual(TEXT("Debug activity neighbourhood"), Settings->DebugActiveNeighbourRadiusCells, 1);
 	return true;
 }
 
@@ -66,7 +67,7 @@ bool FAEDataAssetSchemaTest::RunTest(const FString& Parameters)
 
 	// Assert bundle format, schema, experiment schema, and deterministic seed defaults.
 	TestEqual(TEXT("Bundle format"), ParametersAsset->Format, FString(TEXT("AdaptiveEnv.ParameterBundle")));
-	TestEqual(TEXT("Bundle schema"), ParametersAsset->SchemaVersion, 1);
+	TestEqual(TEXT("Bundle schema"), ParametersAsset->SchemaVersion, 2);
 	TestEqual(TEXT("Experiment schema"), Experiment->SchemaVersion, 2);
 	TestEqual(TEXT("Default seed"), Experiment->RandomSeed, 1337);
 	return true;

@@ -13,6 +13,8 @@ public:
 	static FName M3ModelContract();
 	/* Returns the exact M4 model-contract identifier. */
 	static FName M4ModelContract();
+	/* Returns the exact M5 model-contract identifier. */
+	static FName M5ModelContract();
 	/* Validates header, identity, ordering, records, model contracts, and canonical hashes. */
 	static FAEParameterBundleValidationResult ValidateBundle(const UAEPublishedParameterBundleAsset& Bundle);
 	/* Finds one validated immutable block by exact model contract. */

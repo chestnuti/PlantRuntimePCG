@@ -21,9 +21,9 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Adaptive Environment|Bundle")
 	FString Format = TEXT("AdaptiveEnv.ParameterBundle");
 
-	/* Identifies the published bundle schema and must equal one. */
+	/* Identifies the published bundle schema and must equal two. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Adaptive Environment|Bundle")
-	int32 SchemaVersion = 1;
+	int32 SchemaVersion = 2;
 
 	/* Uniquely identifies the bundle lineage. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Adaptive Environment|Bundle")
@@ -45,7 +45,7 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Adaptive Environment|Bundle")
 	FString GeneratorVersion;
 
-	/* Stores exactly the canonical M3 and M4 parameter blocks. */
+	/* Stores exactly the canonical M3, M4, and M5 parameter blocks. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Adaptive Environment|Bundle")
 	TArray<FAEParameterBlock> Blocks;
 

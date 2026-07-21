@@ -21,16 +21,10 @@ namespace AdaptiveEnvM3Tests
 		}
 		Parameters.ExposureDynamics.Maximum = 1.0;
 		Parameters.ExposureDynamics.HalfLifeSimulationHours = 1.0;
-		Parameters.DamageResponse.ActivationExposure = 0.5;
-		Parameters.DamageResponse.SaturationExposure = 0.8;
-		Parameters.DamageResponse.MaximumRatePerSimulationHour = 0.2;
-		Parameters.RecoveryResponse.ActivationExposure = 0.25;
-		Parameters.RecoveryResponse.DelaySimulationHours = 1.0;
-		Parameters.RecoveryResponse.BaseRatePerSimulationHour = 0.1;
 		return Parameters;
 	}
 
-	/* Creates one canonical transient block containing the exact 20-parameter M3 contract. */
+	/* Creates one canonical transient block containing the exact 14-parameter M3 contract. */
 	FAEParameterBlock MakeValidBlock()
 	{
 		FAEParameterBlock Block;
@@ -50,9 +44,6 @@ namespace AdaptiveEnvM3Tests
 			Parameter.PlausibleMaximum = FMath::Max(Value, 1.0);
 		};
 		uint32 Id = 1;
-		Add(TEXT("DamageActivationExposure"), TEXT("ratio"), 0.5, Id++);
-		Add(TEXT("DamageMaximumRatePerSimulationHour"), TEXT("ratio/h"), 0.2, Id++);
-		Add(TEXT("DamageSaturationExposure"), TEXT("ratio"), 0.8, Id++);
 		Add(TEXT("ExposureCollectEventReferenceCount"), TEXT("count"), 1.0, Id++);
 		Add(TEXT("ExposureCollectEventWeight"), TEXT("ratio"), 1.0 / 6.0, Id++);
 		Add(TEXT("ExposureCombatEventReferenceCount"), TEXT("count"), 1.0, Id++);
@@ -67,9 +58,6 @@ namespace AdaptiveEnvM3Tests
 		Add(TEXT("ExposureSprintWeight"), TEXT("ratio"), 1.0 / 6.0, Id++);
 		Add(TEXT("ExposureTravelDistanceReferenceMeters"), TEXT("m"), 1.0, Id++);
 		Add(TEXT("ExposureTravelDistanceWeight"), TEXT("ratio"), 1.0 / 6.0, Id++);
-		Add(TEXT("RecoveryActivationExposure"), TEXT("ratio"), 0.25, Id++);
-		Add(TEXT("RecoveryBaseRatePerSimulationHour"), TEXT("ratio/h"), 0.1, Id++);
-		Add(TEXT("RecoveryDelaySimulationHours"), TEXT("h"), 1.0, Id++);
 		return Block;
 	}
 
@@ -120,7 +108,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	"AdaptiveEnv.M3.Parameters.RequiredAndUnits",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
-/* Verify the exact 20-parameter block maps into the grouped M3 snapshot. */
+/* Verify the exact 14-parameter block maps into the grouped M3 snapshot. */
 bool FAEM3RequiredParametersTest::RunTest(const FString& Parameters)
 {
 	// Arrange one canonical transient block and valid parent bundle identity.
@@ -157,23 +145,23 @@ bool FAEM3WeightContractTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
-	FAEM3ThresholdContractTest,
-	"AdaptiveEnv.M3.Parameters.ThresholdOrdering",
+	FAEM3DynamicsContractTest,
+	"AdaptiveEnv.M3.Parameters.Dynamics",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
-/* Verify Recovery, Damage, Saturation, and Exposure Maximum ordering is enforced. */
-bool FAEM3ThresholdContractTest::RunTest(const FString& Parameters)
+/* Verify Exposure maximum and half-life remain positive. */
+bool FAEM3DynamicsContractTest::RunTest(const FString& Parameters)
 {
-	// Arrange valid thresholds and verify the optional neutral band is accepted.
+	// Arrange valid dynamics and verify both positive values are accepted.
 	FAEM3ParameterSet ParameterSet = AdaptiveEnvM3Tests::MakeValidParameters();
-	TestTrue(TEXT("Ordered thresholds validate"), FAEM3ParameterService::ValidateParameterSet(ParameterSet).IsValid());
+	TestTrue(TEXT("Positive dynamics validate"), FAEM3ParameterService::ValidateParameterSet(ParameterSet).IsValid());
 
-	// Assert reversed and degenerate threshold relationships are rejected.
-	ParameterSet.RecoveryResponse.ActivationExposure = 0.6;
-	TestFalse(TEXT("Recovery above Damage activation fails"), FAEM3ParameterService::ValidateParameterSet(ParameterSet).IsValid());
+	// Assert non-positive dynamics are rejected.
+	ParameterSet.ExposureDynamics.Maximum = 0.0;
+	TestFalse(TEXT("Zero maximum fails"), FAEM3ParameterService::ValidateParameterSet(ParameterSet).IsValid());
 	ParameterSet = AdaptiveEnvM3Tests::MakeValidParameters();
-	ParameterSet.DamageResponse.SaturationExposure = ParameterSet.DamageResponse.ActivationExposure;
-	TestFalse(TEXT("Degenerate Damage ramp fails"), FAEM3ParameterService::ValidateParameterSet(ParameterSet).IsValid());
+	ParameterSet.ExposureDynamics.HalfLifeSimulationHours = 0.0;
+	TestFalse(TEXT("Zero half-life fails"), FAEM3ParameterService::ValidateParameterSet(ParameterSet).IsValid());
 	return true;
 }
 
@@ -261,8 +249,6 @@ bool FAEM3HalfLifeTest::RunTest(const FString& Parameters)
 	ParameterSet.Channel(EAEExposureChannel::Sprint).Weight = 0.0;
 	ParameterSet.Channel(EAEExposureChannel::Collect).Weight = 0.0;
 	ParameterSet.Channel(EAEExposureChannel::Combat).Weight = 0.0;
-	ParameterSet.DamageResponse.MaximumRatePerSimulationHour = 0.0;
-	ParameterSet.RecoveryResponse.BaseRatePerSimulationHour = 0.0;
 	AdaptiveEnvM3Tests::AddPass(RawGrid);
 	ExposureGrid.Update(RawGrid, RawGrid.GetDirtyCellIndices(), 0.0, 0.0, RawGrid.GetBehaviourRevision(), ParameterSet);
 
@@ -339,86 +325,6 @@ bool FAEM3SixComponentsTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
-	FAEM3DamageResponseTest,
-	"AdaptiveEnv.M3.Response.DamagePiecewiseBoundaries",
-	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
-
-/* Verify the first-version Damage ramp interpolates and integrates in simulated hours. */
-bool FAEM3DamageResponseTest::RunTest(const FString& Parameters)
-{
-	// Arrange Pass Exposure at the midpoint of a 0.25 to 0.75 Damage ramp.
-	FAEHeatmapGrid RawGrid;
-	FAEExposureGrid ExposureGrid;
-	TestTrue(TEXT("Grids initialize"), AdaptiveEnvM3Tests::InitializeGrids(RawGrid, ExposureGrid));
-	FAEM3ParameterSet ParameterSet = AdaptiveEnvM3Tests::MakeValidParameters();
-	ParameterSet.Channel(EAEExposureChannel::Pass).ReferenceValue = 2.0;
-	ParameterSet.Channel(EAEExposureChannel::Pass).Weight = 1.0;
-	ParameterSet.Channel(EAEExposureChannel::Travel).Weight = 0.0;
-	ParameterSet.Channel(EAEExposureChannel::Dwell).Weight = 0.0;
-	ParameterSet.Channel(EAEExposureChannel::Sprint).Weight = 0.0;
-	ParameterSet.Channel(EAEExposureChannel::Collect).Weight = 0.0;
-	ParameterSet.Channel(EAEExposureChannel::Combat).Weight = 0.0;
-	ParameterSet.ExposureDynamics.HalfLifeSimulationHours = 1000000.0;
-	ParameterSet.DamageResponse.ActivationExposure = 0.25;
-	ParameterSet.DamageResponse.SaturationExposure = 0.75;
-	ParameterSet.DamageResponse.MaximumRatePerSimulationHour = 0.2;
-	AdaptiveEnvM3Tests::AddPass(RawGrid);
-
-	// Integrate one simulated hour and assert midpoint rate and bounded state.
-	TestTrue(TEXT("Damage update succeeds"), ExposureGrid.Update(RawGrid, RawGrid.GetDirtyCellIndices(), 1.0, 1.0, RawGrid.GetBehaviourRevision(), ParameterSet));
-	FAEM3CellSnapshot Snapshot;
-	ExposureGrid.GetCellSnapshot(FIntPoint::ZeroValue, Snapshot);
-	TestTrue(TEXT("Midpoint Damage rate is linear"), FMath::IsNearlyEqual(Snapshot.DamageRatePerSimulationHour, 0.1f, 1.0e-5f));
-	TestTrue(TEXT("One-hour Damage integrates rate"), FMath::IsNearlyEqual(Snapshot.EcologicalDamageRatio, 0.1f, 1.0e-5f));
-	return true;
-}
-
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(
-	FAEM3RecoveryDelayTest,
-	"AdaptiveEnv.M3.Response.RecoveryDelay",
-	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
-
-/* Verify Recovery starts only after continuous low Exposure reaches the configured delay. */
-bool FAEM3RecoveryDelayTest::RunTest(const FString& Parameters)
-{
-	// Arrange one damaged Cell whose Exposure decays rapidly below the Recovery threshold.
-	FAEHeatmapGrid RawGrid;
-	FAEExposureGrid ExposureGrid;
-	TestTrue(TEXT("Grids initialize"), AdaptiveEnvM3Tests::InitializeGrids(RawGrid, ExposureGrid));
-	FAEM3ParameterSet ParameterSet = AdaptiveEnvM3Tests::MakeValidParameters();
-	ParameterSet.Channel(EAEExposureChannel::Pass).Weight = 1.0;
-	ParameterSet.Channel(EAEExposureChannel::Travel).Weight = 0.0;
-	ParameterSet.Channel(EAEExposureChannel::Dwell).Weight = 0.0;
-	ParameterSet.Channel(EAEExposureChannel::Sprint).Weight = 0.0;
-	ParameterSet.Channel(EAEExposureChannel::Collect).Weight = 0.0;
-	ParameterSet.Channel(EAEExposureChannel::Combat).Weight = 0.0;
-	ParameterSet.ExposureDynamics.HalfLifeSimulationHours = 0.01;
-	ParameterSet.DamageResponse.ActivationExposure = 0.2;
-	ParameterSet.DamageResponse.SaturationExposure = 0.8;
-	ParameterSet.DamageResponse.MaximumRatePerSimulationHour = 1.0;
-	ParameterSet.RecoveryResponse.DelaySimulationHours = 1.0;
-	ParameterSet.RecoveryResponse.BaseRatePerSimulationHour = 0.2;
-	AdaptiveEnvM3Tests::AddPass(RawGrid);
-	ExposureGrid.Update(RawGrid, RawGrid.GetDirtyCellIndices(), 0.5, 0.5, RawGrid.GetBehaviourRevision(), ParameterSet);
-	FAEM3CellSnapshot Damaged;
-	ExposureGrid.GetCellSnapshot(FIntPoint::ZeroValue, Damaged);
-
-	// Advance two low-Exposure half-hour steps and assert Recovery begins on the second.
-	const TArray<int32> NoDirty;
-	ExposureGrid.Update(RawGrid, NoDirty, 1.0, 0.5, RawGrid.GetBehaviourRevision(), ParameterSet);
-	FAEM3CellSnapshot BeforeDelay;
-	ExposureGrid.GetCellSnapshot(FIntPoint::ZeroValue, BeforeDelay);
-	ExposureGrid.Update(RawGrid, NoDirty, 1.5, 0.5, RawGrid.GetBehaviourRevision(), ParameterSet);
-	FAEM3CellSnapshot AfterDelay;
-	ExposureGrid.GetCellSnapshot(FIntPoint::ZeroValue, AfterDelay);
-	TestTrue(TEXT("Initial Damage is positive"), Damaged.EcologicalDamageRatio > 0.0f);
-	TestTrue(TEXT("Recovery is zero before delay"), FMath::IsNearlyZero(BeforeDelay.RecoveryRatePerSimulationHour, 1.0e-6f));
-	TestTrue(TEXT("Recovery starts at delay"), FMath::IsNearlyEqual(AfterDelay.RecoveryRatePerSimulationHour, 0.2f, 1.0e-6f));
-	TestTrue(TEXT("Recovery reduces Damage"), AfterDelay.EcologicalDamageRatio < BeforeDelay.EcologicalDamageRatio);
-	return true;
-}
-
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FAEM3ResetTest,
 	"AdaptiveEnv.M3.Integration.ResetAndRevision",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -441,9 +347,7 @@ bool FAEM3ResetTest::RunTest(const FString& Parameters)
 	FAEM3CellSnapshot Snapshot;
 	TestTrue(TEXT("Cell remains queryable"), ExposureGrid.GetCellSnapshot(FIntPoint::ZeroValue, Snapshot));
 	TestTrue(TEXT("Exposure resets"), FMath::IsNearlyZero(Snapshot.CurrentExposure, 1.0e-6f));
-	TestTrue(TEXT("Damage resets"), FMath::IsNearlyZero(Snapshot.EcologicalDamageRatio, 1.0e-6f));
 	TestEqual(TEXT("Exposure revision resets"), ExposureGrid.GetExposureRevision(), static_cast<uint64>(0));
-	TestEqual(TEXT("Response revision resets"), ExposureGrid.GetResponseRevision(), static_cast<uint64>(0));
 	TestEqual(TEXT("Active count resets"), ExposureGrid.GetActiveCellCount(), 0);
 	return true;
 }

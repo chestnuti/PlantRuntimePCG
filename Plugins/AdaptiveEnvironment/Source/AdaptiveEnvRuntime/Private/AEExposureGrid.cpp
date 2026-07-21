@@ -64,7 +64,6 @@ void FAEExposureGrid::Reset()
 	ProcessingFlags.Init(false, Cells.Num());
 	ActiveCellCount = 0;
 	ExposureRevision = 0;
-	ResponseRevision = 0;
 }
 
 /* Advance M3 state from stable M1 dirty indices and the shared fixed simulation clock. */
@@ -100,9 +99,7 @@ bool FAEExposureGrid::Update(
 	}
 
 	bool bAnyExposureChanged = false;
-	bool bAnyResponseChanged = false;
 	TArray<int32> ExposureChangedIndices;
-	TArray<int32> ResponseChangedIndices;
 
 	// Process indices in ascending row-major order regardless of dirty insertion order.
 	for (int32 Index = 0; Index < Cells.Num(); ++Index)
@@ -116,10 +113,6 @@ bool FAEExposureGrid::Update(
 		const bool bWasActive = ActiveFlags[Index];
 		const bool bDirty = DirtyBehaviourCellIndices.Contains(Index);
 		const double PreviousExposure = Cell.CurrentExposure;
-		const double PreviousDamage = Cell.EcologicalDamageRatio;
-		const double PreviousDamageRate = Cell.DamageRatePerSimulationHour;
-		const double PreviousRecoveryRate = Cell.RecoveryRatePerSimulationHour;
-		const double PreviousLowDuration = Cell.LowExposureDurationSimulationHours;
 
 		// Decay accumulated Exposure using simulated hours only.
 		if (Cell.CurrentExposure > 0.0 && DeltaSimulationHours > 0.0)
@@ -183,54 +176,14 @@ bool FAEExposureGrid::Update(
 			Cell.SourceBehaviourRevision = BehaviourRevision;
 		}
 
-		// Evaluate mutually exclusive Damage, Recovery, and neutral-band behavior.
-		Cell.DamageRatePerSimulationHour = EvaluateDamageRate(Cell.CurrentExposure, Parameters);
-		Cell.RecoveryRatePerSimulationHour = 0.0;
-		if (Cell.DamageRatePerSimulationHour > 0.0)
-		{
-			Cell.LowExposureDurationSimulationHours = 0.0;
-		}
-		else if (Cell.CurrentExposure < Parameters.RecoveryResponse.ActivationExposure)
-		{
-			Cell.LowExposureDurationSimulationHours += DeltaSimulationHours;
-			if (Cell.LowExposureDurationSimulationHours + UE_DOUBLE_SMALL_NUMBER >= Parameters.RecoveryResponse.DelaySimulationHours)
-			{
-				Cell.RecoveryRatePerSimulationHour = Parameters.RecoveryResponse.BaseRatePerSimulationHour;
-			}
-		}
-		else
-		{
-			Cell.LowExposureDurationSimulationHours = 0.0;
-		}
-
-		// Integrate one bounded logical Damage state with the shared simulation step.
-		Cell.EcologicalDamageRatio = FMath::Clamp(
-			Cell.EcologicalDamageRatio
-			+ Cell.DamageRatePerSimulationHour * DeltaSimulationHours
-			- Cell.RecoveryRatePerSimulationHour * DeltaSimulationHours,
-			0.0,
-			1.0);
-
 		const bool bExposureChanged = AEExposureGridPrivate::Changed(PreviousExposure, Cell.CurrentExposure) || bDirty;
-		const bool bResponseChanged = AEExposureGridPrivate::Changed(PreviousDamage, Cell.EcologicalDamageRatio)
-			|| AEExposureGridPrivate::Changed(PreviousDamageRate, Cell.DamageRatePerSimulationHour)
-			|| AEExposureGridPrivate::Changed(PreviousRecoveryRate, Cell.RecoveryRatePerSimulationHour)
-			|| AEExposureGridPrivate::Changed(PreviousLowDuration, Cell.LowExposureDurationSimulationHours);
 		if (bExposureChanged)
 		{
 			bAnyExposureChanged = true;
 			ExposureChangedIndices.Add(Index);
 		}
-		if (bResponseChanged)
-		{
-			bAnyResponseChanged = true;
-			ResponseChangedIndices.Add(Index);
-		}
-
-		// Continue only while decay, Damage, or Recovery can change logical state.
-		const bool bShouldRemainActive = Cell.CurrentExposure > 0.0
-			|| Cell.EcologicalDamageRatio > 0.0
-			|| Cell.DamageRatePerSimulationHour > 0.0;
+		// Continue only while Exposure decay can change logical state.
+		const bool bShouldRemainActive = Cell.CurrentExposure > 0.0;
 		ActiveFlags[Index] = bShouldRemainActive;
 		if (bWasActive != bShouldRemainActive)
 		{
@@ -245,14 +198,6 @@ bool FAEExposureGrid::Update(
 		for (const int32 Index : ExposureChangedIndices)
 		{
 			Cells[Index].ExposureRevision = ExposureRevision;
-		}
-	}
-	if (bAnyResponseChanged)
-	{
-		++ResponseRevision;
-		for (const int32 Index : ResponseChangedIndices)
-		{
-			Cells[Index].ResponseRevision = ResponseRevision;
 		}
 	}
 	return true;
@@ -396,22 +341,6 @@ bool FAEExposureGrid::HasRawRegression(const FAERawBehaviourTotals& Current, con
 		|| Current.CombatEventCount + RawRegressionTolerance < Previous.CombatEventCount;
 }
 
-/* Evaluate the zero-at-activation piecewise-linear first-version Damage curve. */
-double FAEExposureGrid::EvaluateDamageRate(const double Exposure, const FAEM3ParameterSet& Parameters)
-{
-	if (Exposure <= Parameters.DamageResponse.ActivationExposure)
-	{
-		return 0.0;
-	}
-	if (Exposure >= Parameters.DamageResponse.SaturationExposure)
-	{
-		return Parameters.DamageResponse.MaximumRatePerSimulationHour;
-	}
-	const double Alpha = (Exposure - Parameters.DamageResponse.ActivationExposure)
-		/ (Parameters.DamageResponse.SaturationExposure - Parameters.DamageResponse.ActivationExposure);
-	return Alpha * Parameters.DamageResponse.MaximumRatePerSimulationHour;
-}
-
 /* Copy internal state into one immutable Blueprint-readable snapshot. */
 FAEM3CellSnapshot FAEExposureGrid::MakeSnapshot(const FIntPoint& Coordinate, const int32 Index) const
 {
@@ -426,12 +355,7 @@ FAEM3CellSnapshot FAEExposureGrid::MakeSnapshot(const FIntPoint& Coordinate, con
 	Snapshot.CollectExposure = static_cast<float>(Cell.CollectExposure);
 	Snapshot.CombatExposure = static_cast<float>(Cell.CombatExposure);
 	Snapshot.CurrentExposure = static_cast<float>(Cell.CurrentExposure);
-	Snapshot.EcologicalDamageRatio = static_cast<float>(Cell.EcologicalDamageRatio);
-	Snapshot.DamageRatePerSimulationHour = static_cast<float>(Cell.DamageRatePerSimulationHour);
-	Snapshot.RecoveryRatePerSimulationHour = static_cast<float>(Cell.RecoveryRatePerSimulationHour);
-	Snapshot.LowExposureDurationSimulationHours = static_cast<float>(Cell.LowExposureDurationSimulationHours);
 	Snapshot.SourceBehaviourRevision = static_cast<int64>(Cell.SourceBehaviourRevision);
 	Snapshot.ExposureRevision = static_cast<int64>(Cell.ExposureRevision);
-	Snapshot.ResponseRevision = static_cast<int64>(Cell.ResponseRevision);
 	return Snapshot;
 }

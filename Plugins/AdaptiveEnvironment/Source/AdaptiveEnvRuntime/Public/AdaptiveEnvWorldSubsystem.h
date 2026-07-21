@@ -101,7 +101,11 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Adaptive Environment|M4")
 	bool IsM4Enabled() const { return bM4Enabled; }
 
-	/* Validates and atomically applies one complete M3/M4 published parameter bundle. */
+	/* Returns whether M5 has a complete validated parameter snapshot. */
+	UFUNCTION(BlueprintPure, Category = "Adaptive Environment|M5")
+	bool IsM5Enabled() const { return bM5Enabled; }
+
+	/* Validates and atomically applies one complete M3/M4/M5 published parameter bundle. */
 	UFUNCTION(BlueprintCallable, Category = "Adaptive Environment|Parameters")
 	bool ApplyParameterBundle(UAEPublishedParameterBundleAsset* Bundle, FString& OutError);
 
@@ -116,10 +120,6 @@ public:
 	/* Returns the latest global M3 Exposure revision. */
 	UFUNCTION(BlueprintPure, Category = "Adaptive Environment|M3")
 	int64 GetExposureRevision() const { return static_cast<int64>(ExposureGrid.GetExposureRevision()); }
-
-	/* Returns the latest global M3 ecological response revision. */
-	UFUNCTION(BlueprintPure, Category = "Adaptive Environment|M3")
-	int64 GetEcologicalResponseRevision() const { return static_cast<int64>(ExposureGrid.GetResponseRevision()); }
 
 	/* Collects non-empty cells around a world position for debug drawing. */
 	void GetDebugCells(const FVector& Location, float RadiusCm, int32 MaxCells, TArray<FAEBehaviourCellSnapshot>& OutCells) const;
@@ -143,6 +143,10 @@ private:
 	void UpdateM3(float StepSeconds);
 	/* Rebuilds M3 once from all current raw Cell totals after a parameter-package switch. */
 	void RebuildM3FromCurrentRawGrid();
+	/* Accumulates raw Cells changed since the previous completed debug refresh. */
+	void AccumulateDebugActiveCells();
+	/* Builds one stable nearest-first Cell coordinate window around recent activity. */
+	void BuildDebugCellCoordinates(const FVector& Location, float RadiusCm, int32 MaxCells, TArray<FIntPoint>& OutCoordinates) const;
 	/* Refreshes registered debug renderers at the configured rate. */
 	void UpdateDebugRenderers(float DeltaTime);
 	/* Validates sample identity, values, and behaviour tag before queuing. */
@@ -156,7 +160,7 @@ private:
 	bool bRuntimeEnabled = false;
 	/* Owns raw two-dimensional behaviour aggregation. */
 	FAEHeatmapGrid BehaviourGrid;
-	/* Owns derived M3 Exposure and ecological response state aligned with the raw Grid. */
+	/* Owns derived M3 Exposure state aligned with the raw Grid. */
 	FAEExposureGrid ExposureGrid;
 	/* Stores the atomically committed bundle identity and grouped M3/M4 parameter values. */
 	FAEActiveParameterSnapshot ActiveParameters;
@@ -164,6 +168,8 @@ private:
 	bool bM3Enabled = false;
 	/* Controls M4 decisions independently while sharing the active bundle snapshot. */
 	bool bM4Enabled = false;
+	/* Controls M5 response availability while World-level M5 Grid integration remains planned. */
+	bool bM5Enabled = false;
 	/* Converts one real second into simulated hours for M3 integration. */
 	double SimulationHoursPerRealSecond = 0.0;
 	/* Accumulates render time awaiting fixed behaviour steps. */
@@ -172,6 +178,8 @@ private:
 	double BehaviourTimeSeconds = 0.0;
 	/* Accumulates render time awaiting a debug refresh. */
 	double DebugAccumulator = 0.0;
+	/* Stores unique raw Cell indices changed since the previous debug refresh. */
+	TSet<int32> PendingDebugActiveCellIndices;
 	/* Stores one fixed behaviour step duration in seconds. */
 	float BehaviourStepSeconds = 0.1f;
 	/* Caps fixed behaviour steps executed during one render frame. */

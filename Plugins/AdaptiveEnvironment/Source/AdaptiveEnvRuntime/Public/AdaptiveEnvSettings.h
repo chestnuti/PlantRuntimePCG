@@ -22,7 +22,7 @@ public:
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Runtime")
 	bool bEnableRuntime = true;
 
-	/* Enables M3 Exposure and ecological response when a valid parameter bundle is configured. */
+	/* Enables M3 Exposure when a valid parameter bundle is configured. */
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Parameters")
 	bool bEnableM3 = true;
 
@@ -30,7 +30,11 @@ public:
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Parameters")
 	bool bEnableM4 = true;
 
-	/* References the single published bundle that atomically supplies M3 and M4 parameters. */
+	/* Enables M5 impact fusion and ecological response from the validated bundle. */
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Parameters")
+	bool bEnableM5 = true;
+
+	/* References the single published bundle that atomically supplies M3, M4, and M5 parameters. */
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Parameters")
 	TSoftObjectPtr<UAEPublishedParameterBundleAsset> ParameterBundle;
 
@@ -94,6 +98,10 @@ public:
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Debug", meta = (ClampMin = "0", ClampMax = "96"))
 	int32 MaxDebugTextLabels = 96;
 
+	/* Expands each recently changed Cell by this Chebyshev neighbourhood radius. */
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Debug", meta = (ClampMin = "0", ClampMax = "8"))
+	int32 DebugActiveNeighbourRadiusCells = 1;
+
 	/* Limits debug drawing around the renderer owner in centimetres. */
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Debug", meta = (ClampMin = "0.0"))
 	float DebugDrawRadiusCm = 5000.0f;
@@ -108,5 +116,5 @@ public:
 
 	/* Identifies the serialized settings schema version. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Version")
-	int32 SettingsSchemaVersion = 5;
+	int32 SettingsSchemaVersion = 7;
 };

@@ -75,9 +75,6 @@ namespace AEParameterBundlePrivate
 
 	static const FContractEntry M3Contract[] =
 	{
-		{ TEXT("DamageActivationExposure"), TEXT("ratio") },
-		{ TEXT("DamageMaximumRatePerSimulationHour"), TEXT("ratio/h") },
-		{ TEXT("DamageSaturationExposure"), TEXT("ratio") },
 		{ TEXT("ExposureCollectEventReferenceCount"), TEXT("count") },
 		{ TEXT("ExposureCollectEventWeight"), TEXT("ratio") },
 		{ TEXT("ExposureCombatEventReferenceCount"), TEXT("count") },
@@ -91,16 +88,12 @@ namespace AEParameterBundlePrivate
 		{ TEXT("ExposureSprintDistanceReferenceMeters"), TEXT("m") },
 		{ TEXT("ExposureSprintWeight"), TEXT("ratio") },
 		{ TEXT("ExposureTravelDistanceReferenceMeters"), TEXT("m") },
-		{ TEXT("ExposureTravelDistanceWeight"), TEXT("ratio") },
-		{ TEXT("RecoveryActivationExposure"), TEXT("ratio") },
-		{ TEXT("RecoveryBaseRatePerSimulationHour"), TEXT("ratio/h") },
-		{ TEXT("RecoveryDelaySimulationHours"), TEXT("h") }
+		{ TEXT("ExposureTravelDistanceWeight"), TEXT("ratio") }
 	};
 
 	static const FContractEntry M4Contract[] =
 	{
 		{ TEXT("ActiveThreshold"), TEXT("ratio") },
-		{ TEXT("ConstraintStressSensitivity"), TEXT("ratio") },
 		{ TEXT("HysteresisWidth"), TEXT("ratio") },
 		{ TEXT("MoistureOptimalMaximumRatio"), TEXT("ratio") },
 		{ TEXT("MoistureOptimalMinimumRatio"), TEXT("ratio") },
@@ -109,6 +102,17 @@ namespace AEParameterBundlePrivate
 		{ TEXT("SlopeFullySuitableDegrees"), TEXT("degree") },
 		{ TEXT("SlopeUnsuitableDegrees"), TEXT("degree") },
 		{ TEXT("TransitionDebounceSimulationHours"), TEXT("h") }
+	};
+
+	static const FContractEntry M5Contract[] =
+	{
+		{ TEXT("ConstraintSensitivity"), TEXT("ratio") },
+		{ TEXT("DamageActivationImpact"), TEXT("ratio") },
+		{ TEXT("DamageMaximumRatePerSimulationHour"), TEXT("ratio/h") },
+		{ TEXT("DamageSaturationImpact"), TEXT("ratio") },
+		{ TEXT("RecoveryActivationExposure"), TEXT("ratio") },
+		{ TEXT("RecoveryBaseRatePerSimulationHour"), TEXT("ratio/h") },
+		{ TEXT("RecoveryDelaySimulationHours"), TEXT("h") }
 	};
 
 	/* Returns a stable lowercase GUID string. */
@@ -269,13 +273,19 @@ FString FAEParameterBundleValidationResult::ToString() const
 /* Returns the exact M3 model-contract identifier. */
 FName FAEParameterBundleService::M3ModelContract()
 {
-	return TEXT("AdaptiveEnv.M3.ExposureResponse.v2");
+	return TEXT("AdaptiveEnv.M3.Exposure.v3");
 }
 
 /* Returns the exact M4 model-contract identifier. */
 FName FAEParameterBundleService::M4ModelContract()
 {
-	return TEXT("AdaptiveEnv.M4.ConstraintDecision.v1");
+	return TEXT("AdaptiveEnv.M4.EnvironmentConstraint.v2");
+}
+
+/* Returns the exact M5 model-contract identifier. */
+FName FAEParameterBundleService::M5ModelContract()
+{
+	return TEXT("AdaptiveEnv.M5.EcologicalResponse.v1");
 }
 
 /* Validates header, identity, ordering, records, model contracts, and canonical hashes. */
@@ -286,7 +296,7 @@ FAEParameterBundleValidationResult FAEParameterBundleService::ValidateBundle(con
 
 	// Validate the immutable bundle header before inspecting nested content.
 	if (Bundle.Format != TEXT("AdaptiveEnv.ParameterBundle")) Result.Add(TEXT("AE-BUNDLE-001"), TEXT("Format must equal AdaptiveEnv.ParameterBundle."));
-	if (Bundle.SchemaVersion != 1) Result.Add(TEXT("AE-BUNDLE-002"), TEXT("SchemaVersion must equal 1."));
+	if (Bundle.SchemaVersion != 2) Result.Add(TEXT("AE-BUNDLE-002"), TEXT("SchemaVersion must equal 2."));
 	if (!Bundle.BundleId.IsValid()) Result.Add(TEXT("AE-BUNDLE-003"), TEXT("BundleId must be a valid GUID."));
 	if (!IsSemanticVersion(Bundle.SemanticVersion)) Result.Add(TEXT("AE-BUNDLE-004"), TEXT("SemanticVersion must use major.minor.patch."));
 	if (!IsSHA256(Bundle.ParentContentHash, true)) Result.Add(TEXT("AE-BUNDLE-005"), TEXT("ParentContentHash must be empty or lowercase SHA-256."));
@@ -294,18 +304,20 @@ FAEParameterBundleValidationResult FAEParameterBundleService::ValidateBundle(con
 	if (Bundle.GeneratorVersion.IsEmpty()) Result.Add(TEXT("AE-BUNDLE-007"), TEXT("GeneratorVersion must not be empty."));
 	if (!IsSHA256(Bundle.ContentHash)) Result.Add(TEXT("AE-BUNDLE-008"), TEXT("ContentHash must be lowercase SHA-256."));
 
-	// Enforce exactly two uniquely identified blocks in canonical contract order.
-	if (Bundle.Blocks.Num() != 2)
+	// Enforce exactly three uniquely identified blocks in canonical contract order.
+	if (Bundle.Blocks.Num() != 3)
 	{
-		Result.Add(TEXT("AE-BUNDLE-010"), TEXT("Blocks must contain exactly the M3 and M4 contracts."));
+		Result.Add(TEXT("AE-BUNDLE-010"), TEXT("Blocks must contain exactly the M3, M4, and M5 contracts."));
 	}
 	else
 	{
-		if (Bundle.Blocks[0].ModelContract != M3ModelContract() || Bundle.Blocks[1].ModelContract != M4ModelContract())
+		if (Bundle.Blocks[0].ModelContract != M3ModelContract() || Bundle.Blocks[1].ModelContract != M4ModelContract() || Bundle.Blocks[2].ModelContract != M5ModelContract())
 		{
-			Result.Add(TEXT("AE-BUNDLE-011"), TEXT("Blocks must use canonical ModelContract order M3 then M4."));
+			Result.Add(TEXT("AE-BUNDLE-011"), TEXT("Blocks must use canonical ModelContract order M3, M4, then M5."));
 		}
-		if (!Bundle.Blocks[0].BlockId.IsValid() || !Bundle.Blocks[1].BlockId.IsValid() || Bundle.Blocks[0].BlockId == Bundle.Blocks[1].BlockId)
+		TSet<FGuid> BlockIds;
+		for (const FAEParameterBlock& Block : Bundle.Blocks) BlockIds.Add(Block.BlockId);
+		if (BlockIds.Num() != 3 || BlockIds.Contains(FGuid()))
 		{
 			Result.Add(TEXT("AE-BUNDLE-012"), TEXT("BlockId values must be valid and unique."));
 		}
@@ -318,6 +330,7 @@ FAEParameterBundleValidationResult FAEParameterBundleService::ValidateBundle(con
 		}
 		ValidateContract(Bundle.Blocks[0], M3Contract, Result);
 		ValidateContract(Bundle.Blocks[1], M4Contract, Result);
+		ValidateContract(Bundle.Blocks[2], M5Contract, Result);
 
 		// Require ParameterId uniqueness across both model contracts, not only within each block.
 		TSet<FGuid> BundleParameterIds;

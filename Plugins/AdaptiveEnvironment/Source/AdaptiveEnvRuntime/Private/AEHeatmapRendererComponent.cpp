@@ -208,14 +208,6 @@ float UAEHeatmapRendererComponent::GetM3DisplayValue(const FAEM3CellSnapshot& Sn
 		return Snapshot.CombatExposure;
 	case EAEHeatmapDebugMode::CurrentExposure:
 		return Snapshot.CurrentExposure;
-	case EAEHeatmapDebugMode::EcologicalDamage:
-		return Snapshot.EcologicalDamageRatio;
-	case EAEHeatmapDebugMode::DamageRate:
-		return Snapshot.DamageRatePerSimulationHour;
-	case EAEHeatmapDebugMode::RecoveryRate:
-		return Snapshot.RecoveryRatePerSimulationHour;
-	case EAEHeatmapDebugMode::LowExposureDuration:
-		return Snapshot.LowExposureDurationSimulationHours;
 	default:
 		return 0.0f;
 	}

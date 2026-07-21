@@ -263,4 +263,66 @@ bool FAEFixedStepSchedulerTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FAEDebugActiveWindowTest,
+	"AdaptiveEnv.M1.DebugRenderer.ActiveWindow",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+/* Verify debug queries retain recent activity until refresh and discard historical Cells afterward. */
+bool FAEDebugActiveWindowTest::RunTest(const FString& Parameters)
+{
+	// Create an isolated World and submit one first observation at the Grid centre.
+	const FName WorldName = MakeUniqueObjectName(GetTransientPackage(), UWorld::StaticClass(), TEXT("AE_M1_DebugWindowWorld"));
+	UWorld* World = UWorld::CreateWorld(EWorldType::Game, false, WorldName, GetTransientPackage(), true);
+	TestNotNull(TEXT("Temporary world"), World);
+	if (World == nullptr)
+	{
+		return false;
+	}
+	UAEAdaptiveEnvWorldSubsystem* Subsystem = World->GetSubsystem<UAEAdaptiveEnvWorldSubsystem>();
+	TestNotNull(TEXT("Subsystem"), Subsystem);
+	const FGuid FirstAgent = FGuid::NewGuid();
+	FAEBehaviourSample First = AdaptiveEnvM1Tests::MakeSample(
+		FirstAgent,
+		0,
+		FVector::ZeroVector,
+		AdaptiveEnvGameplayTags::Behaviour_Move.GetTag());
+	TestEqual(TEXT("First activity queues"), Subsystem->SubmitBehaviourSample(First), EAEBehaviourSubmitResult::Accepted);
+	Subsystem->Tick(0.1f);
+
+	// Assert the pending window contains the active Cell and bounded neighbouring snapshots.
+	FAEBehaviourCellSnapshot FirstCell;
+	TestTrue(TEXT("First Cell remains queryable"), Subsystem->GetBehaviourCellAtWorldLocation(FVector::ZeroVector, FirstCell));
+	TArray<FAEBehaviourCellSnapshot> Cells;
+	Subsystem->GetDebugCells(FVector::ZeroVector, 5000.0f, 2048, Cells);
+	TestTrue(TEXT("Recent activity produces a local window"), !Cells.IsEmpty() && Cells.Num() <= 25);
+	TestTrue(TEXT("Active Cell is included"), Cells.ContainsByPredicate([&FirstCell](const FAEBehaviourCellSnapshot& Cell)
+	{
+		return Cell.Coordinate == FirstCell.Coordinate;
+	}));
+
+	// Complete the independent debug interval, then add unrelated activity with a different Agent.
+	Subsystem->Tick(0.1f);
+	Subsystem->GetDebugCells(FVector::ZeroVector, 5000.0f, 2048, Cells);
+	TestTrue(TEXT("Completed refresh clears the old window"), Cells.IsEmpty());
+	const FVector SecondLocation(3000.0f, 0.0f, 0.0f);
+	FAEBehaviourSample Second = AdaptiveEnvM1Tests::MakeSample(
+		FGuid::NewGuid(),
+		0,
+		SecondLocation,
+		AdaptiveEnvGameplayTags::Behaviour_Move.GetTag());
+	TestEqual(TEXT("Second activity queues"), Subsystem->SubmitBehaviourSample(Second), EAEBehaviourSubmitResult::Accepted);
+	Subsystem->Tick(0.1f);
+	Subsystem->GetDebugCells(SecondLocation, 5000.0f, 2048, Cells);
+	TestFalse(TEXT("Historical Cell is excluded from the new window"), Cells.ContainsByPredicate([&FirstCell](const FAEBehaviourCellSnapshot& Cell)
+	{
+		return Cell.Coordinate == FirstCell.Coordinate;
+	}));
+
+	// Destroy the transient World after all activity-window assertions complete.
+	World->DestroyWorld(false);
+	World->RemoveFromRoot();
+	return true;
+}
+
 #endif

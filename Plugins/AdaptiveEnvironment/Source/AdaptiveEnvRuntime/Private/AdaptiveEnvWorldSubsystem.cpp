@@ -5,6 +5,7 @@
 #include "AEParameterBundleService.h"
 #include "AEM3ParameterService.h"
 #include "AEM4ParameterService.h"
+#include "AEM5ParameterService.h"
 #include "AEPublishedParameterBundleAsset.h"
 #include "AdaptiveEnvGameplayTags.h"
 #include "AdaptiveEnvLog.h"
@@ -43,10 +44,11 @@ void UAEAdaptiveEnvWorldSubsystem::Initialize(FSubsystemCollectionBase& Collecti
 		UE_LOG(LogAdaptiveEnv, Error, TEXT("M3 grid initialization failed."));
 	}
 
-	// Load one atomic M3/M4 bundle without disabling the validated M1 pipeline when absent.
+	// Load one atomic M3/M4/M5 bundle without disabling the validated M1 pipeline when absent.
 	bM3Enabled = false;
 	bM4Enabled = false;
-	if (bRuntimeEnabled && (Settings->bEnableM3 || Settings->bEnableM4))
+	bM5Enabled = false;
+	if (bRuntimeEnabled && (Settings->bEnableM3 || Settings->bEnableM4 || Settings->bEnableM5))
 	{
 		UAEPublishedParameterBundleAsset* Bundle = Settings->ParameterBundle.LoadSynchronous();
 		if (Bundle != nullptr)
@@ -60,11 +62,12 @@ void UAEAdaptiveEnvWorldSubsystem::Initialize(FSubsystemCollectionBase& Collecti
 			{
 				bM3Enabled = Settings->bEnableM3;
 				bM4Enabled = Settings->bEnableM4;
+				bM5Enabled = Settings->bEnableM5;
 			}
 		}
 		else
 		{
-			UE_LOG(LogAdaptiveEnv, Log, TEXT("M3 and M4 disabled because no parameter bundle is configured. World=%s"), *GetNameSafe(GetWorld()));
+			UE_LOG(LogAdaptiveEnv, Log, TEXT("M3, M4, and M5 disabled because no parameter bundle is configured. World=%s"), *GetNameSafe(GetWorld()));
 		}
 	}
 
@@ -98,6 +101,7 @@ void UAEAdaptiveEnvWorldSubsystem::Deinitialize()
 	PendingRendererRemoves.Reset();
 	PendingSamples.Reset();
 	ProcessingSamples.Reset();
+	PendingDebugActiveCellIndices.Reset();
 	LastQueuedSequenceByAgent.Reset();
 	LastQueuedTimestampByAgent.Reset();
 	BehaviourGrid.Reset();
@@ -137,6 +141,7 @@ void UAEAdaptiveEnvWorldSubsystem::Tick(float DeltaTime)
 		SampleRegisteredTrackers(BehaviourStepSeconds);
 		ProcessPendingSamples();
 		UpdateM3(BehaviourStepSeconds);
+		AccumulateDebugActiveCells();
 		++ProcessedBehaviourStepCount;
 	}
 
@@ -302,6 +307,7 @@ void UAEAdaptiveEnvWorldSubsystem::ResetBehaviourGrid()
 	BehaviourTimeSeconds = 0.0;
 	ProcessedBehaviourStepCount = 0;
 	SchedulerOverrunCount = 0;
+	PendingDebugActiveCellIndices.Reset();
 	// Reset each valid tracker so its next observation is treated as the first.
 	for (const TWeakObjectPtr<UAEBehaviourTrackerComponent>& Tracker : RegisteredTrackers)
 	{
@@ -332,15 +338,18 @@ bool UAEAdaptiveEnvWorldSubsystem::ApplyParameterBundle(UAEPublishedParameterBun
 	}
 	FAEParameterBlockView M3Block;
 	FAEParameterBlockView M4Block;
+	FAEParameterBlockView M5Block;
 	FAEParameterBundleService::FindBlock(*Bundle, FAEParameterBundleService::M3ModelContract(), M3Block);
 	FAEParameterBundleService::FindBlock(*Bundle, FAEParameterBundleService::M4ModelContract(), M4Block);
+	FAEParameterBundleService::FindBlock(*Bundle, FAEParameterBundleService::M5ModelContract(), M5Block);
 	FAEActiveParameterSnapshot Candidate;
 	Candidate.BundleIdentity = { Bundle->BundleId, Bundle->SemanticVersion, Bundle->ContentHash };
 	const FAEM3ValidationResult M3Result = FAEM3ParameterService::BuildParameterSet(M3Block, Candidate.BundleIdentity, Candidate.M3);
 	const FAEM4ValidationResult M4Result = FAEM4ParameterService::BuildParameterSet(M4Block, Candidate.BundleIdentity, Candidate.M4);
-	if (!M3Result.IsValid() || !M4Result.IsValid())
+	const FAEM5ValidationResult M5Result = FAEM5ParameterService::BuildParameterSet(M5Block, Candidate.BundleIdentity, Candidate.M5);
+	if (!M3Result.IsValid() || !M4Result.IsValid() || !M5Result.IsValid())
 	{
-		OutError = FString::Printf(TEXT("M3=[%s] M4=[%s]"), *M3Result.ToString(), *M4Result.ToString());
+		OutError = FString::Printf(TEXT("M3=[%s] M4=[%s] M5=[%s]"), *M3Result.ToString(), *M4Result.ToString(), *M5Result.ToString());
 		return false;
 	}
 	Candidate.M3BlockId = M3Block.Block->BlockId;
@@ -349,12 +358,16 @@ bool UAEAdaptiveEnvWorldSubsystem::ApplyParameterBundle(UAEPublishedParameterBun
 	Candidate.M4BlockId = M4Block.Block->BlockId;
 	Candidate.M4BlockVersion = M4Block.Block->BlockVersion;
 	Candidate.M4BlockHash = M4Block.Block->BlockHash;
+	Candidate.M5BlockId = M5Block.Block->BlockId;
+	Candidate.M5BlockVersion = M5Block.Block->BlockVersion;
+	Candidate.M5BlockHash = M5Block.Block->BlockHash;
 
 	// Commit both model parameter sets together at the Game Thread boundary.
 	const FString PreviousHash = ActiveParameters.BundleIdentity.ContentHash;
 	ActiveParameters = MoveTemp(Candidate);
 	bM3Enabled = true;
 	bM4Enabled = true;
+	bM5Enabled = true;
 	RebuildM3FromCurrentRawGrid();
 	UE_LOG(
 		LogAdaptiveEnv,
@@ -382,7 +395,18 @@ bool UAEAdaptiveEnvWorldSubsystem::GetM3CellAtWorldLocation(const FVector& Locat
 // Forward a bounded debug-cell query to the behaviour grid.
 void UAEAdaptiveEnvWorldSubsystem::GetDebugCells(const FVector& Location, const float RadiusCm, const int32 MaxCells, TArray<FAEBehaviourCellSnapshot>& OutCells) const
 {
-	BehaviourGrid.GetNonEmptyCellsInRadius(Location, RadiusCm, MaxCells, OutCells);
+	OutCells.Reset();
+	TArray<FIntPoint> Coordinates;
+	BuildDebugCellCoordinates(Location, RadiusCm, MaxCells, Coordinates);
+	OutCells.Reserve(Coordinates.Num());
+	for (const FIntPoint& Coordinate : Coordinates)
+	{
+		FAEBehaviourCellSnapshot Snapshot;
+		if (BehaviourGrid.GetCellSnapshot(Coordinate, Snapshot))
+		{
+			OutCells.Add(MoveTemp(Snapshot));
+		}
+	}
 }
 
 /* Forward a bounded active-cell query to the World-owned M3 Grid. */
@@ -397,7 +421,18 @@ void UAEAdaptiveEnvWorldSubsystem::GetM3DebugCells(
 		OutCells.Reset();
 		return;
 	}
-	ExposureGrid.GetActiveCellsInRadius(Location, RadiusCm, MaxCells, OutCells);
+	OutCells.Reset();
+	TArray<FIntPoint> Coordinates;
+	BuildDebugCellCoordinates(Location, RadiusCm, MaxCells, Coordinates);
+	OutCells.Reserve(Coordinates.Num());
+	for (const FIntPoint& Coordinate : Coordinates)
+	{
+		FAEM3CellSnapshot Snapshot;
+		if (ExposureGrid.GetCellSnapshot(Coordinate, Snapshot))
+		{
+			OutCells.Add(MoveTemp(Snapshot));
+		}
+	}
 }
 
 /* Resolve a stable parameter-aware normalization maximum for M3 debug colour. */
@@ -407,17 +442,12 @@ float UAEAdaptiveEnvWorldSubsystem::GetM3DebugMaximumValue(const EAEHeatmapDebug
 	{
 	case EAEHeatmapDebugMode::CurrentExposure:
 		return static_cast<float>(ActiveParameters.M3.ExposureDynamics.Maximum);
-	case EAEHeatmapDebugMode::DamageRate:
-		return static_cast<float>(ActiveParameters.M3.DamageResponse.MaximumRatePerSimulationHour);
-	case EAEHeatmapDebugMode::RecoveryRate:
-		return static_cast<float>(ActiveParameters.M3.RecoveryResponse.BaseRatePerSimulationHour);
 	case EAEHeatmapDebugMode::PassExposure:
 	case EAEHeatmapDebugMode::TravelExposure:
 	case EAEHeatmapDebugMode::DwellExposure:
 	case EAEHeatmapDebugMode::SprintExposure:
 	case EAEHeatmapDebugMode::CollectExposure:
 	case EAEHeatmapDebugMode::CombatExposure:
-	case EAEHeatmapDebugMode::EcologicalDamage:
 		return 1.0f;
 	default:
 		return 0.0f;
@@ -562,6 +592,91 @@ void UAEAdaptiveEnvWorldSubsystem::RebuildM3FromCurrentRawGrid()
 	}
 }
 
+/* Preserve every raw Cell changed between independent debug refreshes. */
+void UAEAdaptiveEnvWorldSubsystem::AccumulateDebugActiveCells()
+{
+	for (const int32 Index : BehaviourGrid.GetDirtyCellIndices())
+	{
+		PendingDebugActiveCellIndices.Add(Index);
+	}
+}
+
+/* Build a bounded deterministic coordinate window around recently active raw Cells. */
+void UAEAdaptiveEnvWorldSubsystem::BuildDebugCellCoordinates(
+	const FVector& Location,
+	const float RadiusCm,
+	const int32 MaxCells,
+	TArray<FIntPoint>& OutCoordinates) const
+{
+	OutCoordinates.Reset();
+	if (MaxCells <= 0 || PendingDebugActiveCellIndices.IsEmpty())
+	{
+		return;
+	}
+
+	struct FCandidate
+	{
+		int32 Index = INDEX_NONE;
+		double DistanceSquared = 0.0;
+	};
+
+	// Expand recent activity into one deduplicated in-bounds Chebyshev neighbourhood.
+	const FAEHeatmapGridConfig& Config = BehaviourGrid.GetConfig();
+	const int32 CellCount = Config.Dimensions.X * Config.Dimensions.Y;
+	const int32 NeighbourRadius = FMath::Max(GetDefault<UAdaptiveEnvSettings>()->DebugActiveNeighbourRadiusCells, 0);
+	TBitArray<> IncludedFlags(false, CellCount);
+	for (const int32 ActiveIndex : PendingDebugActiveCellIndices)
+	{
+		if (ActiveIndex < 0 || ActiveIndex >= CellCount)
+		{
+			continue;
+		}
+		const FIntPoint ActiveCoordinate(ActiveIndex % Config.Dimensions.X, ActiveIndex / Config.Dimensions.X);
+		for (int32 OffsetY = -NeighbourRadius; OffsetY <= NeighbourRadius; ++OffsetY)
+		{
+			for (int32 OffsetX = -NeighbourRadius; OffsetX <= NeighbourRadius; ++OffsetX)
+			{
+				const FIntPoint Coordinate = ActiveCoordinate + FIntPoint(OffsetX, OffsetY);
+				int32 NeighbourIndex = INDEX_NONE;
+				if (BehaviourGrid.CellToIndex(Coordinate, NeighbourIndex))
+				{
+					IncludedFlags[NeighbourIndex] = true;
+				}
+			}
+		}
+	}
+
+	// Apply the renderer-centred XY radius before the nearest-first Cell budget.
+	const double RadiusSquared = FMath::Square(static_cast<double>(FMath::Max(RadiusCm, 0.0f)));
+	const FVector2D QueryLocation(Location);
+	TArray<FCandidate> Candidates;
+	for (TConstSetBitIterator<> Iterator(IncludedFlags); Iterator; ++Iterator)
+	{
+		const int32 Index = Iterator.GetIndex();
+		const FIntPoint Coordinate(Index % Config.Dimensions.X, Index / Config.Dimensions.X);
+		const FVector Center = BehaviourGrid.GetCellWorldCenter(Coordinate);
+		const double DistanceSquared = FVector2D::DistSquared(FVector2D(Center), QueryLocation);
+		if (DistanceSquared <= RadiusSquared)
+		{
+			Candidates.Add({Index, DistanceSquared});
+		}
+	}
+	Candidates.Sort([](const FCandidate& A, const FCandidate& B)
+	{
+		return A.DistanceSquared < B.DistanceSquared
+			|| (FMath::IsNearlyEqual(A.DistanceSquared, B.DistanceSquared) && A.Index < B.Index);
+	});
+
+	// Publish stable coordinates shared by M1 and M3 read-only debug queries.
+	const int32 ResultCount = FMath::Min(Candidates.Num(), MaxCells);
+	OutCoordinates.Reserve(ResultCount);
+	for (int32 ResultIndex = 0; ResultIndex < ResultCount; ++ResultIndex)
+	{
+		const int32 Index = Candidates[ResultIndex].Index;
+		OutCoordinates.Add(FIntPoint(Index % Config.Dimensions.X, Index / Config.Dimensions.X));
+	}
+}
+
 // Refresh registered debug renderers at an independent configured rate.
 void UAEAdaptiveEnvWorldSubsystem::UpdateDebugRenderers(const float DeltaTime)
 {
@@ -583,6 +698,9 @@ void UAEAdaptiveEnvWorldSubsystem::UpdateDebugRenderers(const float DeltaTime)
 			Renderer->RenderDebug(*this, static_cast<float>(RefreshStep));
 		}
 	}
+
+	// Start a fresh activity window only after every renderer consumed this refresh.
+	PendingDebugActiveCellIndices.Reset();
 }
 
 // Validate sample identity, finite values, ranges, and supported tags.

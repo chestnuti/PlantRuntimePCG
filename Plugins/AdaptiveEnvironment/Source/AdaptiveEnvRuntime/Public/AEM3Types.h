@@ -33,28 +33,6 @@ struct ADAPTIVEENVRUNTIME_API FAEExposureDynamicsParameters
 	double HalfLifeSimulationHours = 1.0;
 };
 
-/* Stores the piecewise-linear ecological Damage response. */
-struct ADAPTIVEENVRUNTIME_API FAEDamageResponseParameters
-{
-	/* Starts Damage when Exposure reaches this ratio. */
-	double ActivationExposure = 0.5;
-	/* Saturates Damage when Exposure reaches this ratio. */
-	double SaturationExposure = 1.0;
-	/* Caps Damage growth per simulated hour. */
-	double MaximumRatePerSimulationHour = 0.0;
-};
-
-/* Stores the delayed low-Exposure ecological Recovery response. */
-struct ADAPTIVEENVRUNTIME_API FAERecoveryResponseParameters
-{
-	/* Starts the low-Exposure recovery timer below this ratio. */
-	double ActivationExposure = 0.25;
-	/* Defines the continuous low-Exposure delay before Recovery in simulated hours. */
-	double DelaySimulationHours = 0.0;
-	/* Defines the constant Recovery rate per simulated hour. */
-	double BaseRatePerSimulationHour = 0.0;
-};
-
 /* Stores validated effective M3 values grouped by model responsibility. */
 struct ADAPTIVEENVRUNTIME_API FAEM3ParameterSet
 {
@@ -62,10 +40,6 @@ struct ADAPTIVEENVRUNTIME_API FAEM3ParameterSet
 	TStaticArray<FAEExposureChannelParameters, static_cast<int32>(EAEExposureChannel::Count)> Channels;
 	/* Stores accumulated Exposure decay and cap parameters. */
 	FAEExposureDynamicsParameters ExposureDynamics;
-	/* Stores the Damage response parameters. */
-	FAEDamageResponseParameters DamageResponse;
-	/* Stores the Recovery response parameters. */
-	FAERecoveryResponseParameters RecoveryResponse;
 
 	/* Returns mutable parameters for one fixed channel. */
 	FAEExposureChannelParameters& Channel(EAEExposureChannel Channel) { return Channels[static_cast<int32>(Channel)]; }
@@ -90,7 +64,7 @@ struct ADAPTIVEENVRUNTIME_API FAERawBehaviourTotals
 	double CombatEventCount = 0.0;
 };
 
-/* Exposes immutable M3 Exposure and ecological response values for one Cell. */
+/* Exposes immutable M3 Exposure values for one Cell. */
 USTRUCT(BlueprintType)
 struct ADAPTIVEENVRUNTIME_API FAEM3CellSnapshot
 {
@@ -132,22 +106,6 @@ struct ADAPTIVEENVRUNTIME_API FAEM3CellSnapshot
 	UPROPERTY(BlueprintReadOnly, Category = "Adaptive Environment|M3")
 	float CurrentExposure = 0.0f;
 
-	/* Stores continuous ecological Damage from zero to one. */
-	UPROPERTY(BlueprintReadOnly, Category = "Adaptive Environment|M3")
-	float EcologicalDamageRatio = 0.0f;
-
-	/* Stores the current Damage rate per simulated hour. */
-	UPROPERTY(BlueprintReadOnly, Category = "Adaptive Environment|M3")
-	float DamageRatePerSimulationHour = 0.0f;
-
-	/* Stores the current Recovery rate per simulated hour. */
-	UPROPERTY(BlueprintReadOnly, Category = "Adaptive Environment|M3")
-	float RecoveryRatePerSimulationHour = 0.0f;
-
-	/* Stores continuous duration below the Recovery threshold in simulated hours. */
-	UPROPERTY(BlueprintReadOnly, Category = "Adaptive Environment|M3")
-	float LowExposureDurationSimulationHours = 0.0f;
-
 	/* Identifies the raw behavior revision consumed by this Cell. */
 	UPROPERTY(BlueprintReadOnly, Category = "Adaptive Environment|M3")
 	int64 SourceBehaviourRevision = 0;
@@ -156,7 +114,4 @@ struct ADAPTIVEENVRUNTIME_API FAEM3CellSnapshot
 	UPROPERTY(BlueprintReadOnly, Category = "Adaptive Environment|M3")
 	int64 ExposureRevision = 0;
 
-	/* Identifies the latest ecological response change affecting this Cell. */
-	UPROPERTY(BlueprintReadOnly, Category = "Adaptive Environment|M3")
-	int64 ResponseRevision = 0;
 };

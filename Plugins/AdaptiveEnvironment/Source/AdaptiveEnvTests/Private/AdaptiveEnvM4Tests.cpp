@@ -15,7 +15,6 @@ namespace AdaptiveEnvM4Tests
 		Parameters.ConstraintResponse.MoistureOptimalMinimumRatio = 0.3;
 		Parameters.ConstraintResponse.MoistureOptimalMaximumRatio = 0.7;
 		Parameters.ConstraintResponse.MoistureToleranceWidthRatio = 0.2;
-		Parameters.ConstraintResponse.ConstraintStressSensitivity = 0.5;
 		Parameters.RegionState.ActiveThreshold = 0.25;
 		Parameters.RegionState.OverusedThreshold = 0.75;
 		Parameters.RegionState.HysteresisWidth = 0.1;
@@ -26,7 +25,7 @@ namespace AdaptiveEnvM4Tests
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAEM4ParameterContractTest, "AdaptiveEnv.M4.Parameters.ConstraintAndState", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
-/* Verifies valid constraints and shared hysteresis relationships. */
+/* Verifies valid independent environment parameters and hysteresis relationships. */
 bool FAEM4ParameterContractTest::RunTest(const FString& Parameters)
 {
 	FAEM4ParameterSet Values = AdaptiveEnvM4Tests::MakeParameters();
@@ -36,41 +35,32 @@ bool FAEM4ParameterContractTest::RunTest(const FString& Parameters)
 	return true;
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAEM4EffectivePressureTest, "AdaptiveEnv.M4.State.EffectivePressure", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAEM4IndependentPressureTest, "AdaptiveEnv.M4.State.IndependentEnvironmentPressure", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
-/* Verifies either disturbance or Damage can dominate effective pressure. */
-bool FAEM4EffectivePressureTest::RunTest(const FString& Parameters)
+/* Verifies slope and moisture alone determine M4 pressure and suitability. */
+bool FAEM4IndependentPressureTest::RunTest(const FString& Parameters)
 {
 	const FAEM4ParameterSet Values = AdaptiveEnvM4Tests::MakeParameters();
 	FAEM4StateMemory State;
-	FAEM3CellSnapshot M3;
-	M3.CurrentExposure = 0.2f;
-	M3.EcologicalDamageRatio = 0.9f;
-	const FAEM4DecisionSnapshot DamageDriven = FAEM4ParameterService::EvaluateDecision(10.0, 0.5, M3, 1.0, 0.5, Values, State);
-	TestTrue(TEXT("Damage dominates pressure"), FMath::IsNearlyEqual(DamageDriven.EffectivePressureRatio, DamageDriven.EffectiveDamageRatio));
-	M3.CurrentExposure = 1.0f;
-	M3.EcologicalDamageRatio = 0.1f;
-	const FAEM4DecisionSnapshot ExposureDriven = FAEM4ParameterService::EvaluateDecision(10.0, 0.5, M3, 1.0, 0.5, Values, State);
-	TestTrue(TEXT("Exposure dominates pressure"), FMath::IsNearlyEqual(ExposureDriven.EffectivePressureRatio, ExposureDriven.EffectiveDisturbanceRatio));
+	const FAEEnvironmentConstraintSnapshot Suitable = FAEM4ParameterService::EvaluateEnvironment(10.0, 0.5, 0.5, Values, State);
+	const FAEEnvironmentConstraintSnapshot Severe = FAEM4ParameterService::EvaluateEnvironment(45.0, 0.0, 0.5, Values, State);
+	TestTrue(TEXT("Suitable habitat has no pressure"), FMath::IsNearlyZero(Suitable.ConstraintPressureRatio));
+	TestTrue(TEXT("Suitable habitat has full suitability"), FMath::IsNearlyEqual(Suitable.HabitatSuitabilityRatio, 1.0f));
+	TestTrue(TEXT("Severe habitat has full pressure"), FMath::IsNearlyEqual(Severe.ConstraintPressureRatio, 1.0f));
 	return true;
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAEM4HysteresisDebounceTest, "AdaptiveEnv.M4.State.SharedHysteresisAndDebounce", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
-/* Verifies threshold noise is stable and one shared debounce controls transitions. */
+/* Verifies one shared debounce controls environment-state transitions. */
 bool FAEM4HysteresisDebounceTest::RunTest(const FString& Parameters)
 {
 	const FAEM4ParameterSet Values = AdaptiveEnvM4Tests::MakeParameters();
 	FAEM4StateMemory State;
-	FAEM3CellSnapshot M3;
-	M3.CurrentExposure = 0.4f;
-	FAEM4ParameterService::EvaluateDecision(10.0, 0.5, M3, 1.0, 0.25, Values, State);
+	FAEM4ParameterService::EvaluateEnvironment(30.0, 0.5, 0.25, Values, State);
 	TestEqual(TEXT("State remains Unused before debounce"), State.CurrentState, EAERegionState::Unused);
-	FAEM4ParameterService::EvaluateDecision(10.0, 0.5, M3, 1.0, 0.25, Values, State);
-	TestEqual(TEXT("State commits Active at debounce"), State.CurrentState, EAERegionState::Active);
-	M3.CurrentExposure = 0.26f;
-	FAEM4ParameterService::EvaluateDecision(10.0, 0.5, M3, 1.0, 1.0, Values, State);
-	TestEqual(TEXT("Pressure inside hysteresis band remains Active"), State.CurrentState, EAERegionState::Active);
+	FAEM4ParameterService::EvaluateEnvironment(30.0, 0.5, 0.25, Values, State);
+	TestEqual(TEXT("State commits after debounce"), State.CurrentState, EAERegionState::Active);
 	return true;
 }
 

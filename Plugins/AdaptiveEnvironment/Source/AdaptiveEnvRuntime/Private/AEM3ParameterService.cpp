@@ -75,15 +75,9 @@ FAEM3ValidationResult FAEM3ParameterService::BuildParameterSet(
 	Read(TEXT("ExposureCombatEventReferenceCount"), Candidate.Channel(EAEExposureChannel::Combat).ReferenceValue);
 	Read(TEXT("ExposureCombatEventWeight"), Candidate.Channel(EAEExposureChannel::Combat).Weight);
 
-	// Map response groups without retaining transport-name lookups in fixed steps.
+	// Map Exposure dynamics without retaining transport-name lookups in fixed steps.
 	Read(TEXT("ExposureMaximum"), Candidate.ExposureDynamics.Maximum);
 	Read(TEXT("ExposureHalfLifeSimulationHours"), Candidate.ExposureDynamics.HalfLifeSimulationHours);
-	Read(TEXT("DamageActivationExposure"), Candidate.DamageResponse.ActivationExposure);
-	Read(TEXT("DamageSaturationExposure"), Candidate.DamageResponse.SaturationExposure);
-	Read(TEXT("DamageMaximumRatePerSimulationHour"), Candidate.DamageResponse.MaximumRatePerSimulationHour);
-	Read(TEXT("RecoveryActivationExposure"), Candidate.RecoveryResponse.ActivationExposure);
-	Read(TEXT("RecoveryDelaySimulationHours"), Candidate.RecoveryResponse.DelaySimulationHours);
-	Read(TEXT("RecoveryBaseRatePerSimulationHour"), Candidate.RecoveryResponse.BaseRatePerSimulationHour);
 
 	const FAEM3ValidationResult NumericResult = ValidateParameterSet(Candidate);
 	Result.Issues.Append(NumericResult.Issues);
@@ -115,38 +109,23 @@ FAEM3ValidationResult FAEM3ParameterService::ValidateParameterSet(const FAEM3Par
 		Result.Add(TEXT("AE-M3-PARAM-004"), FString::Printf(TEXT("Exposure weights must sum to 1.0; found %.12g."), WeightSum));
 	}
 
-	// Validate finite dynamics and response rates before ordering comparisons.
+	// Validate finite Exposure dynamics.
 	const double Values[] =
 	{
 		ParameterSet.ExposureDynamics.Maximum,
-		ParameterSet.ExposureDynamics.HalfLifeSimulationHours,
-		ParameterSet.DamageResponse.ActivationExposure,
-		ParameterSet.DamageResponse.SaturationExposure,
-		ParameterSet.DamageResponse.MaximumRatePerSimulationHour,
-		ParameterSet.RecoveryResponse.ActivationExposure,
-		ParameterSet.RecoveryResponse.DelaySimulationHours,
-		ParameterSet.RecoveryResponse.BaseRatePerSimulationHour
+		ParameterSet.ExposureDynamics.HalfLifeSimulationHours
 	};
 	for (const double Value : Values)
 	{
 		if (!FMath::IsFinite(Value))
 		{
-			Result.Add(TEXT("AE-M3-PARAM-003"), TEXT("Every M3 dynamics and response value must be finite."));
+			Result.Add(TEXT("AE-M3-PARAM-003"), TEXT("Every M3 dynamics value must be finite."));
 			return Result;
 		}
 	}
-	if (ParameterSet.ExposureDynamics.Maximum <= 0.0 || ParameterSet.ExposureDynamics.HalfLifeSimulationHours <= 0.0 ||
-		ParameterSet.DamageResponse.MaximumRatePerSimulationHour < 0.0 || ParameterSet.RecoveryResponse.DelaySimulationHours < 0.0 ||
-		ParameterSet.RecoveryResponse.BaseRatePerSimulationHour < 0.0)
+	if (ParameterSet.ExposureDynamics.Maximum <= 0.0 || ParameterSet.ExposureDynamics.HalfLifeSimulationHours <= 0.0)
 	{
-		Result.Add(TEXT("AE-M3-PARAM-003"), TEXT("Exposure maximum and half-life must be positive; response rates and delay must be non-negative."));
-	}
-	if (ParameterSet.RecoveryResponse.ActivationExposure < 0.0 ||
-		ParameterSet.RecoveryResponse.ActivationExposure > ParameterSet.DamageResponse.ActivationExposure ||
-		ParameterSet.DamageResponse.ActivationExposure >= ParameterSet.DamageResponse.SaturationExposure ||
-		ParameterSet.DamageResponse.SaturationExposure > ParameterSet.ExposureDynamics.Maximum)
-	{
-		Result.Add(TEXT("AE-M3-PARAM-005"), TEXT("Thresholds must satisfy 0 <= RecoveryActivation <= DamageActivation < DamageSaturation <= ExposureMaximum."));
+		Result.Add(TEXT("AE-M3-PARAM-003"), TEXT("Exposure maximum and half-life must be positive."));
 	}
 	return Result;
 }

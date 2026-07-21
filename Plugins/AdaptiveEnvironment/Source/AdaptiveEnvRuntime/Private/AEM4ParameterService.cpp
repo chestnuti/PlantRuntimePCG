@@ -87,7 +87,6 @@ FAEM4ValidationResult FAEM4ParameterService::BuildParameterSet(const FAEParamete
 	FAEM4ParameterSet Candidate;
 	// Map all transport names once into the two runtime responsibility groups.
 	AEM4ParameterServicePrivate::Read(*Block.Block, TEXT("ActiveThreshold"), Candidate.RegionState.ActiveThreshold, Result);
-	AEM4ParameterServicePrivate::Read(*Block.Block, TEXT("ConstraintStressSensitivity"), Candidate.ConstraintResponse.ConstraintStressSensitivity, Result);
 	AEM4ParameterServicePrivate::Read(*Block.Block, TEXT("HysteresisWidth"), Candidate.RegionState.HysteresisWidth, Result);
 	AEM4ParameterServicePrivate::Read(*Block.Block, TEXT("MoistureOptimalMaximumRatio"), Candidate.ConstraintResponse.MoistureOptimalMaximumRatio, Result);
 	AEM4ParameterServicePrivate::Read(*Block.Block, TEXT("MoistureOptimalMinimumRatio"), Candidate.ConstraintResponse.MoistureOptimalMinimumRatio, Result);
@@ -108,7 +107,7 @@ FAEM4ValidationResult FAEM4ParameterService::ValidateParameterSet(const FAEM4Par
 	FAEM4ValidationResult Result;
 	const FAEConstraintResponseParameters& C = Parameters.ConstraintResponse;
 	const FAERegionStateParameters& S = Parameters.RegionState;
-	const double Values[] = { C.SlopeFullySuitableDegrees, C.SlopeUnsuitableDegrees, C.MoistureOptimalMinimumRatio, C.MoistureOptimalMaximumRatio, C.MoistureToleranceWidthRatio, C.ConstraintStressSensitivity, S.ActiveThreshold, S.OverusedThreshold, S.HysteresisWidth, S.TransitionDebounceSimulationHours };
+	const double Values[] = { C.SlopeFullySuitableDegrees, C.SlopeUnsuitableDegrees, C.MoistureOptimalMinimumRatio, C.MoistureOptimalMaximumRatio, C.MoistureToleranceWidthRatio, S.ActiveThreshold, S.OverusedThreshold, S.HysteresisWidth, S.TransitionDebounceSimulationHours };
 	for (const double Value : Values)
 	{
 		if (!FMath::IsFinite(Value))
@@ -119,7 +118,7 @@ FAEM4ValidationResult FAEM4ParameterService::ValidateParameterSet(const FAEM4Par
 	}
 	if (C.SlopeFullySuitableDegrees < 0.0 || C.SlopeFullySuitableDegrees >= C.SlopeUnsuitableDegrees || C.SlopeUnsuitableDegrees > 90.0 ||
 		C.MoistureOptimalMinimumRatio < 0.0 || C.MoistureOptimalMinimumRatio > C.MoistureOptimalMaximumRatio || C.MoistureOptimalMaximumRatio > 1.0 ||
-		C.MoistureToleranceWidthRatio <= 0.0 || C.ConstraintStressSensitivity < 0.0 || S.TransitionDebounceSimulationHours < 0.0)
+		C.MoistureToleranceWidthRatio <= 0.0 || S.TransitionDebounceSimulationHours < 0.0)
 	{
 		Result.Add(TEXT("AE-M4-PARAM-003"), TEXT("Constraint ranges, sensitivity, or debounce are invalid."));
 	}
@@ -132,19 +131,15 @@ FAEM4ValidationResult FAEM4ParameterService::ValidateParameterSet(const FAEM4Par
 	return Result;
 }
 
-/* Evaluates suitability, effective pressure, hysteresis, and debounce for one fixed step. */
-FAEM4DecisionSnapshot FAEM4ParameterService::EvaluateDecision(const double SlopeDegrees, const double MoistureRatio, const FAEM3CellSnapshot& M3, const double ExposureMaximum, const double DeltaSimulationHours, const FAEM4ParameterSet& Parameters, FAEM4StateMemory& InOutState)
+/* Evaluates independent environment suitability, pressure, hysteresis, and debounce. */
+FAEEnvironmentConstraintSnapshot FAEM4ParameterService::EvaluateEnvironment(const double SlopeDegrees, const double MoistureRatio, const double DeltaSimulationHours, const FAEM4ParameterSet& Parameters, FAEM4StateMemory& InOutState)
 {
-	FAEM4DecisionSnapshot Output;
-	// Derive combined constraint stress and the two bounded pressure channels.
+	FAEEnvironmentConstraintSnapshot Output;
+	// Derive environment suitability and pressure without reading M3.
 	const double Slope = AEM4ParameterServicePrivate::SlopeSuitability(FMath::Clamp(SlopeDegrees, 0.0, 90.0), Parameters.ConstraintResponse);
 	const double Moisture = AEM4ParameterServicePrivate::MoistureSuitability(FMath::Clamp(MoistureRatio, 0.0, 1.0), Parameters.ConstraintResponse);
-	const double Stress = 1.0 - Slope * Moisture;
-	const double Fragility = 1.0 + Stress * Parameters.ConstraintResponse.ConstraintStressSensitivity;
-	const double SafeExposureMaximum = FMath::Max(ExposureMaximum, UE_DOUBLE_SMALL_NUMBER);
-	const double Disturbance = FMath::Clamp(static_cast<double>(M3.CurrentExposure) / SafeExposureMaximum * Fragility, 0.0, 1.0);
-	const double Damage = FMath::Clamp(static_cast<double>(M3.EcologicalDamageRatio) * Fragility, 0.0, 1.0);
-	const double Pressure = FMath::Max(Disturbance, Damage);
+	const double Suitability = FMath::Clamp(Slope * Moisture, 0.0, 1.0);
+	const double Pressure = 1.0 - Suitability;
 
 	// Accumulate only a stable changed candidate and commit at the shared debounce boundary.
 	const EAERegionState Candidate = AEM4ParameterServicePrivate::SelectCandidate(InOutState.CurrentState, Pressure, Parameters.RegionState);
@@ -169,10 +164,8 @@ FAEM4DecisionSnapshot FAEM4ParameterService::EvaluateDecision(const double Slope
 		}
 	}
 
-	Output.ConstraintStressRatio = static_cast<float>(Stress);
-	Output.EffectiveDisturbanceRatio = static_cast<float>(Disturbance);
-	Output.EffectiveDamageRatio = static_cast<float>(Damage);
-	Output.EffectivePressureRatio = static_cast<float>(Pressure);
+	Output.ConstraintPressureRatio = static_cast<float>(Pressure);
+	Output.HabitatSuitabilityRatio = static_cast<float>(Suitability);
 	Output.State = InOutState.CurrentState;
 	return Output;
 }

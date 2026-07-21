@@ -35,9 +35,6 @@ namespace AdaptiveEnvM2Tests
 		Block.ModelContract = FAEParameterBundleService::M3ModelContract();
 		Block.BlockVersion = TEXT("1.0.0");
 		uint32 Id = 1;
-		AddParameter(Block, TEXT("DamageActivationExposure"), TEXT("ratio"), 0.5, Id++);
-		AddParameter(Block, TEXT("DamageMaximumRatePerSimulationHour"), TEXT("ratio/h"), 0.2, Id++);
-		AddParameter(Block, TEXT("DamageSaturationExposure"), TEXT("ratio"), 0.8, Id++);
 		AddParameter(Block, TEXT("ExposureCollectEventReferenceCount"), TEXT("count"), 1.0, Id++);
 		AddParameter(Block, TEXT("ExposureCollectEventWeight"), TEXT("ratio"), 1.0 / 6.0, Id++);
 		AddParameter(Block, TEXT("ExposureCombatEventReferenceCount"), TEXT("count"), 1.0, Id++);
@@ -52,9 +49,6 @@ namespace AdaptiveEnvM2Tests
 		AddParameter(Block, TEXT("ExposureSprintWeight"), TEXT("ratio"), 1.0 / 6.0, Id++);
 		AddParameter(Block, TEXT("ExposureTravelDistanceReferenceMeters"), TEXT("m"), 1.0, Id++);
 		AddParameter(Block, TEXT("ExposureTravelDistanceWeight"), TEXT("ratio"), 1.0 / 6.0, Id++);
-		AddParameter(Block, TEXT("RecoveryActivationExposure"), TEXT("ratio"), 0.25, Id++);
-		AddParameter(Block, TEXT("RecoveryBaseRatePerSimulationHour"), TEXT("ratio/h"), 0.1, Id++);
-		AddParameter(Block, TEXT("RecoveryDelaySimulationHours"), TEXT("h"), 1.0, Id++);
 		FString Error;
 		Block.BlockHash = FAEParameterBundleService::ComputeBlockHash(Block, Error);
 		return Block;
@@ -69,7 +63,6 @@ namespace AdaptiveEnvM2Tests
 		Block.BlockVersion = TEXT("1.0.0");
 		uint32 Id = 101;
 		AddParameter(Block, TEXT("ActiveThreshold"), TEXT("ratio"), 0.25, Id++);
-		AddParameter(Block, TEXT("ConstraintStressSensitivity"), TEXT("ratio"), 0.5, Id++);
 		AddParameter(Block, TEXT("HysteresisWidth"), TEXT("ratio"), 0.1, Id++);
 		AddParameter(Block, TEXT("MoistureOptimalMaximumRatio"), TEXT("ratio"), 0.7, Id++);
 		AddParameter(Block, TEXT("MoistureOptimalMinimumRatio"), TEXT("ratio"), 0.3, Id++);
@@ -83,7 +76,27 @@ namespace AdaptiveEnvM2Tests
 		return Block;
 	}
 
-	/* Creates and seals one complete test-only Published Parameter Bundle v1. */
+	/* Creates one valid exact M5 block in canonical parameter-name order. */
+	FAEParameterBlock MakeM5Block()
+	{
+		FAEParameterBlock Block;
+		Block.BlockId = FGuid(0xAE000002, 5, 0, 1);
+		Block.ModelContract = FAEParameterBundleService::M5ModelContract();
+		Block.BlockVersion = TEXT("1.0.0");
+		uint32 Id = 201;
+		AddParameter(Block, TEXT("ConstraintSensitivity"), TEXT("ratio"), 0.5, Id++);
+		AddParameter(Block, TEXT("DamageActivationImpact"), TEXT("ratio"), 0.5, Id++);
+		AddParameter(Block, TEXT("DamageMaximumRatePerSimulationHour"), TEXT("ratio/h"), 0.2, Id++);
+		AddParameter(Block, TEXT("DamageSaturationImpact"), TEXT("ratio"), 0.8, Id++);
+		AddParameter(Block, TEXT("RecoveryActivationExposure"), TEXT("ratio"), 0.25, Id++);
+		AddParameter(Block, TEXT("RecoveryBaseRatePerSimulationHour"), TEXT("ratio/h"), 0.1, Id++);
+		AddParameter(Block, TEXT("RecoveryDelaySimulationHours"), TEXT("h"), 1.0, Id++);
+		FString Error;
+		Block.BlockHash = FAEParameterBundleService::ComputeBlockHash(Block, Error);
+		return Block;
+	}
+
+	/* Creates and seals one complete test-only three-block Published Parameter Bundle. */
 	UAEPublishedParameterBundleAsset* MakeBundle()
 	{
 		UAEPublishedParameterBundleAsset* Bundle = NewObject<UAEPublishedParameterBundleAsset>();
@@ -91,7 +104,7 @@ namespace AdaptiveEnvM2Tests
 		Bundle->SemanticVersion = TEXT("1.0.0");
 		Bundle->SourceAuditHash = FString::ChrN(64, TEXT('a'));
 		Bundle->GeneratorVersion = TEXT("adaptive-env-m2-tests/1.0.0");
-		Bundle->Blocks = { MakeM3Block(), MakeM4Block() };
+		Bundle->Blocks = { MakeM3Block(), MakeM4Block(), MakeM5Block() };
 		FString Error;
 		Bundle->ContentHash = FAEParameterBundleService::ComputeContentHash(*Bundle, Error);
 		return Bundle;
@@ -100,14 +113,14 @@ namespace AdaptiveEnvM2Tests
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAEBundleValidTest, "AdaptiveEnv.M2.Bundle.Valid", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
-/* Verifies one exact two-block, 30-record bundle passes every runtime gate. */
+/* Verifies one exact three-block, 30-record bundle passes every runtime gate. */
 bool FAEBundleValidTest::RunTest(const FString& Parameters)
 {
 	const UAEPublishedParameterBundleAsset* Bundle = AdaptiveEnvM2Tests::MakeBundle();
 	const FAEParameterBundleValidationResult Result = FAEParameterBundleService::ValidateBundle(*Bundle);
 	TestTrue(TEXT("Complete bundle validates"), Result.IsValid());
-	TestEqual(TEXT("Exactly two blocks"), Bundle->Blocks.Num(), 2);
-	TestEqual(TEXT("Exactly thirty parameters"), Bundle->Blocks[0].Parameters.Num() + Bundle->Blocks[1].Parameters.Num(), 30);
+	TestEqual(TEXT("Exactly three blocks"), Bundle->Blocks.Num(), 3);
+	TestEqual(TEXT("Exactly thirty parameters"), Bundle->Blocks[0].Parameters.Num() + Bundle->Blocks[1].Parameters.Num() + Bundle->Blocks[2].Parameters.Num(), 30);
 	return true;
 }
 
@@ -139,7 +152,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAEBundleInvalidHashTest, "AdaptiveEnv.M2.Bundl
 bool FAEBundleInvalidHashTest::RunTest(const FString& Parameters)
 {
 	UAEPublishedParameterBundleAsset* Bundle = AdaptiveEnvM2Tests::MakeBundle();
-	Bundle->SchemaVersion = 2;
+	Bundle->SchemaVersion = 3;
 	TestFalse(TEXT("Unsupported schema fails"), FAEParameterBundleService::ValidateBundle(*Bundle).IsValid());
 	Bundle = AdaptiveEnvM2Tests::MakeBundle();
 	Bundle->Blocks[0].Parameters[0].EffectiveValue += 0.01;
@@ -181,8 +194,8 @@ bool FAEBundleGoldenImportTest::RunTest(const FString& Parameters)
 	if (Imported != nullptr)
 	{
 		TestEqual(TEXT("Imported content hash"), Imported->ContentHash, Source->ContentHash);
-		TestEqual(TEXT("Imported block count"), Imported->Blocks.Num(), 2);
-		TestEqual(TEXT("Imported record count"), Imported->Blocks[0].Parameters.Num() + Imported->Blocks[1].Parameters.Num(), 30);
+		TestEqual(TEXT("Imported block count"), Imported->Blocks.Num(), 3);
+		TestEqual(TEXT("Imported record count"), Imported->Blocks[0].Parameters.Num() + Imported->Blocks[1].Parameters.Num() + Imported->Blocks[2].Parameters.Num(), 30);
 	}
 	IFileManager::Get().Delete(*Filename, false, true);
 	return true;
@@ -217,7 +230,7 @@ bool FAEBundleAtomicReimportTest::RunTest(const FString& Parameters)
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAEBundleWorldSwitchTest, "AdaptiveEnv.M3.Integration.BundleSwitch", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
-/* Verifies one World commits M3/M4 together and preserves them after a rejected candidate. */
+/* Verifies one World commits M3/M4/M5 together and preserves them after rejection. */
 bool FAEBundleWorldSwitchTest::RunTest(const FString& Parameters)
 {
 	const FName WorldName = MakeUniqueObjectName(GetTransientPackage(), UWorld::StaticClass(), TEXT("AE_BundleSwitchWorld"));
@@ -233,11 +246,13 @@ bool FAEBundleWorldSwitchTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("Valid bundle commits"), Subsystem->ApplyParameterBundle(Valid, Error));
 		TestTrue(TEXT("M3 commits with bundle"), Subsystem->IsM3Enabled());
 		TestTrue(TEXT("M4 commits with bundle"), Subsystem->IsM4Enabled());
+		TestTrue(TEXT("M5 commits with bundle"), Subsystem->IsM5Enabled());
 		UAEPublishedParameterBundleAsset* Invalid = AdaptiveEnvM2Tests::MakeBundle();
 		Invalid->Blocks[0].Parameters[0].EffectiveValue += 0.1;
 		TestFalse(TEXT("Tampered candidate is rejected"), Subsystem->ApplyParameterBundle(Invalid, Error));
 		TestTrue(TEXT("Rejected candidate preserves M3"), Subsystem->IsM3Enabled());
 		TestTrue(TEXT("Rejected candidate preserves M4"), Subsystem->IsM4Enabled());
+		TestTrue(TEXT("Rejected candidate preserves M5"), Subsystem->IsM5Enabled());
 	}
 	World->DestroyWorld(false);
 	return true;

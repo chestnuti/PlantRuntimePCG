@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "AEParameterBundleTypes.h"
 #include "AEM3Types.h"
+#include "AEM5Types.h"
 #include "AdaptiveEnvTypes.h"
 #include "AEM4Types.generated.h"
 
@@ -19,8 +20,6 @@ struct ADAPTIVEENVRUNTIME_API FAEConstraintResponseParameters
 	double MoistureOptimalMaximumRatio = 1.0;
 	/* Defines the positive moisture falloff width outside the optimum interval. */
 	double MoistureToleranceWidthRatio = 0.1;
-	/* Scales constraint stress when deriving effective pressure. */
-	double ConstraintStressSensitivity = 0.0;
 };
 
 /* Stores shared region-state thresholds, hysteresis, and debounce. */
@@ -45,7 +44,7 @@ struct ADAPTIVEENVRUNTIME_API FAEM4ParameterSet
 	FAERegionStateParameters RegionState;
 };
 
-/* Atomically binds one bundle identity to its M3 and M4 typed values. */
+/* Atomically binds one bundle identity to its M3, M4, and M5 typed values. */
 struct ADAPTIVEENVRUNTIME_API FAEActiveParameterSnapshot
 {
 	/* Stores immutable bundle identity for manifests and switch checks. */
@@ -62,16 +61,24 @@ struct ADAPTIVEENVRUNTIME_API FAEActiveParameterSnapshot
 	FString M4BlockVersion;
 	/* Stores the validated M4 block canonical hash. */
 	FString M4BlockHash;
+	/* Stores the validated M5 block identity. */
+	FGuid M5BlockId;
+	/* Stores the validated M5 block semantic version. */
+	FString M5BlockVersion;
+	/* Stores the validated M5 block canonical hash. */
+	FString M5BlockHash;
 	/* Stores grouped M3 runtime values. */
 	FAEM3ParameterSet M3;
 	/* Stores grouped M4 runtime values. */
 	FAEM4ParameterSet M4;
+	/* Stores grouped M5 runtime values. */
+	FAEM5ParameterSet M5;
 };
 
 /* Stores mutable temporal state for one M4 region or Cell. */
 struct ADAPTIVEENVRUNTIME_API FAEM4StateMemory
 {
-	/* Stores the currently committed ecological state. */
+	/* Stores the currently committed environment state. */
 	EAERegionState CurrentState = EAERegionState::Unused;
 	/* Stores the candidate state while debounce accumulates. */
 	EAERegionState CandidateState = EAERegionState::Unused;
@@ -79,25 +86,19 @@ struct ADAPTIVEENVRUNTIME_API FAEM4StateMemory
 	double CandidateDurationSimulationHours = 0.0;
 };
 
-/* Exposes one immutable M4 constraint and decision result. */
+/* Exposes one immutable M4 environment-constraint result. */
 USTRUCT(BlueprintType)
-struct ADAPTIVEENVRUNTIME_API FAEM4DecisionSnapshot
+struct ADAPTIVEENVRUNTIME_API FAEEnvironmentConstraintSnapshot
 {
 	GENERATED_BODY()
 
-	/* Stores normalized combined slope and moisture stress from zero to one. */
+	/* Stores normalized combined slope and moisture pressure from zero to one. */
 	UPROPERTY(BlueprintReadOnly, Category = "Adaptive Environment|M4")
-	float ConstraintStressRatio = 0.0f;
-	/* Stores constraint-adjusted Exposure pressure from zero to one. */
+	float ConstraintPressureRatio = 0.0f;
+	/* Stores combined habitat suitability from zero to one. */
 	UPROPERTY(BlueprintReadOnly, Category = "Adaptive Environment|M4")
-	float EffectiveDisturbanceRatio = 0.0f;
-	/* Stores constraint-adjusted ecological Damage pressure from zero to one. */
-	UPROPERTY(BlueprintReadOnly, Category = "Adaptive Environment|M4")
-	float EffectiveDamageRatio = 0.0f;
-	/* Stores the maximum of disturbance and Damage pressure from zero to one. */
-	UPROPERTY(BlueprintReadOnly, Category = "Adaptive Environment|M4")
-	float EffectivePressureRatio = 0.0f;
-	/* Stores the state committed after hysteresis and debounce. */
+	float HabitatSuitabilityRatio = 1.0f;
+	/* Stores the environment state committed after hysteresis and debounce. */
 	UPROPERTY(BlueprintReadOnly, Category = "Adaptive Environment|M4")
 	EAERegionState State = EAERegionState::Unused;
 };

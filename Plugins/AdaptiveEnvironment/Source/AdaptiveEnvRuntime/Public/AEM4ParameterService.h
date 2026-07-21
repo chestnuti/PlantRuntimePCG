@@ -25,5 +25,5 @@ public:
 	/* Validates numeric ranges, threshold ordering, hysteresis boundaries, and debounce. */
 	static FAEM4ValidationResult ValidateParameterSet(const FAEM4ParameterSet& Parameters);
 	/* Evaluates suitability, effective pressure, hysteresis, and debounce for one fixed step. */
-	static FAEM4DecisionSnapshot EvaluateDecision(double SlopeDegrees, double MoistureRatio, const FAEM3CellSnapshot& M3, double ExposureMaximum, double DeltaSimulationHours, const FAEM4ParameterSet& Parameters, FAEM4StateMemory& InOutState);
+	static FAEEnvironmentConstraintSnapshot EvaluateEnvironment(double SlopeDegrees, double MoistureRatio, double DeltaSimulationHours, const FAEM4ParameterSet& Parameters, FAEM4StateMemory& InOutState);
 };
