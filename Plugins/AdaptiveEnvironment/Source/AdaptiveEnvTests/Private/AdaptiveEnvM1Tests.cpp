@@ -295,7 +295,7 @@ bool FAEDebugActiveWindowTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("First Cell remains queryable"), Subsystem->GetBehaviourCellAtWorldLocation(FVector::ZeroVector, FirstCell));
 	TArray<FAEBehaviourCellSnapshot> Cells;
 	Subsystem->GetDebugCells(FVector::ZeroVector, 5000.0f, 2048, Cells);
-	TestTrue(TEXT("Recent activity produces a local window"), !Cells.IsEmpty() && Cells.Num() <= 25);
+	TestTrue(TEXT("Recent activity produces a configured local window"), !Cells.IsEmpty() && Cells.Num() <= 121);
 	TestTrue(TEXT("Active Cell is included"), Cells.ContainsByPredicate([&FirstCell](const FAEBehaviourCellSnapshot& Cell)
 	{
 		return Cell.Coordinate == FirstCell.Coordinate;

@@ -64,6 +64,7 @@ void FAEExposureGrid::Reset()
 	ProcessingFlags.Init(false, Cells.Num());
 	ActiveCellCount = 0;
 	ExposureRevision = 0;
+	LastChangedCellIndices.Reset();
 }
 
 /* Advance M3 state from stable M1 dirty indices and the shared fixed simulation clock. */
@@ -99,7 +100,7 @@ bool FAEExposureGrid::Update(
 	}
 
 	bool bAnyExposureChanged = false;
-	TArray<int32> ExposureChangedIndices;
+	LastChangedCellIndices.Reset();
 
 	// Process indices in ascending row-major order regardless of dirty insertion order.
 	for (int32 Index = 0; Index < Cells.Num(); ++Index)
@@ -180,7 +181,7 @@ bool FAEExposureGrid::Update(
 		if (bExposureChanged)
 		{
 			bAnyExposureChanged = true;
-			ExposureChangedIndices.Add(Index);
+			LastChangedCellIndices.Add(Index);
 		}
 		// Continue only while Exposure decay can change logical state.
 		const bool bShouldRemainActive = Cell.CurrentExposure > 0.0;
@@ -195,7 +196,7 @@ bool FAEExposureGrid::Update(
 	if (bAnyExposureChanged)
 	{
 		++ExposureRevision;
-		for (const int32 Index : ExposureChangedIndices)
+		for (const int32 Index : LastChangedCellIndices)
 		{
 			Cells[Index].ExposureRevision = ExposureRevision;
 		}

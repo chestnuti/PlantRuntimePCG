@@ -3,6 +3,8 @@
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
 #include "AEM3Types.h"
+#include "AEM4Types.h"
+#include "AEM5Types.h"
 #include "AdaptiveEnvTypes.h"
 #include "AEHeatmapRendererComponent.generated.h"
 
@@ -52,8 +54,16 @@ public:
 private:
 	/* Returns whether the selected layer consumes M3 snapshots. */
 	bool IsM3Mode() const;
+	/* Returns whether the selected layer consumes M4 snapshots. */
+	bool IsM4Mode() const;
+	/* Returns whether the selected layer consumes M5 snapshots. */
+	bool IsM5Mode() const;
 	/* Reads the selected M1 metric from one behavior snapshot. */
 	float GetBehaviourDisplayValue(const FAEBehaviourCellSnapshot& Snapshot) const;
 	/* Reads the selected M3 metric from one ecological snapshot. */
 	float GetM3DisplayValue(const FAEM3CellSnapshot& Snapshot) const;
+	/* Reads the selected M4 metric from one constraint snapshot. */
+	float GetM4DisplayValue(const FAEEnvironmentConstraintSnapshot& Snapshot) const;
+	/* Reads the selected M5 metric from one response snapshot. */
+	float GetM5DisplayValue(const FAEEcologicalResponseSnapshot& Snapshot) const;
 };

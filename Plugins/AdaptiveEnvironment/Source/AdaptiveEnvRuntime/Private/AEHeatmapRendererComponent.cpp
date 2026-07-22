@@ -70,8 +70,10 @@ void UAEHeatmapRendererComponent::RenderDebug(const UAEAdaptiveEnvWorldSubsystem
 	const FIntPoint Dimensions = Subsystem.GetGridDimensions();
 	const float CellSize = Dimensions.X > 0 ? static_cast<float>(GridSize.X / Dimensions.X) : 100.0f;
 	const FVector Extent(CellSize * 0.48f, CellSize * 0.48f, 3.0f);
-	const float ModeMaximum = bUseModeDefaultRange && IsM3Mode()
-		? Subsystem.GetM3DebugMaximumValue(Mode)
+	const float ModeMaximum = bUseModeDefaultRange
+		? (Mode == EAEHeatmapDebugMode::EnvironmentState ? 3.0f
+			: (IsM3Mode() ? Subsystem.GetM3DebugMaximumValue(Mode)
+				: ((IsM4Mode() || IsM5Mode()) ? 1.0f : 0.0f)))
 		: 0.0f;
 	const float DisplayMaximum = FMath::Max(
 		ModeMaximum > 0.0f ? ModeMaximum : FixedMaximumValue,
@@ -79,7 +81,33 @@ void UAEHeatmapRendererComponent::RenderDebug(const UAEAdaptiveEnvWorldSubsystem
 	TArray<AEHeatmapRendererPrivate::FCellDrawData> DrawCells;
 
 	// Query the selected data layer and convert immutable snapshots into common draw data.
-	if (IsM3Mode())
+	if (IsM5Mode())
+	{
+		TArray<FAEEcologicalResponseSnapshot> Cells;
+		Subsystem.GetM5DebugCells(Origin, Settings->DebugDrawRadiusCm, Settings->MaxDebugCells, Cells);
+		DrawCells.Reserve(Cells.Num());
+		for (const FAEEcologicalResponseSnapshot& Cell : Cells)
+		{
+			const float Value = GetM5DisplayValue(Cell);
+			if (!FMath::IsFinite(Value) || Value < MinimumValue) continue;
+			const float Alpha = FMath::Clamp(Value / DisplayMaximum, 0.0f, 1.0f);
+			DrawCells.Add({Cell.Coordinate, Cell.WorldCenter, FVector2D::ZeroVector, Value, FLinearColor::LerpUsingHSV(FLinearColor::Blue, FLinearColor::Red, Alpha).ToFColor(true)});
+		}
+	}
+	else if (IsM4Mode())
+	{
+		TArray<FAEEnvironmentConstraintSnapshot> Cells;
+		Subsystem.GetM4DebugCells(Origin, Settings->DebugDrawRadiusCm, Settings->MaxDebugCells, Cells);
+		DrawCells.Reserve(Cells.Num());
+		for (const FAEEnvironmentConstraintSnapshot& Cell : Cells)
+		{
+			const float Value = GetM4DisplayValue(Cell);
+			if (!FMath::IsFinite(Value) || Value < MinimumValue) continue;
+			const float Alpha = FMath::Clamp(Value / DisplayMaximum, 0.0f, 1.0f);
+			DrawCells.Add({Cell.Coordinate, Cell.WorldCenter, FVector2D::ZeroVector, Value, FLinearColor::LerpUsingHSV(FLinearColor::Blue, FLinearColor::Red, Alpha).ToFColor(true)});
+		}
+	}
+	else if (IsM3Mode())
 	{
 		TArray<FAEM3CellSnapshot> Cells;
 		Subsystem.GetM3DebugCells(Origin, Settings->DebugDrawRadiusCm, Settings->MaxDebugCells, Cells);
@@ -166,7 +194,19 @@ void UAEHeatmapRendererComponent::RenderDebug(const UAEAdaptiveEnvWorldSubsystem
 /* Return whether the selected layer is derived from M3 state. */
 bool UAEHeatmapRendererComponent::IsM3Mode() const
 {
-	return Mode >= EAEHeatmapDebugMode::PassExposure;
+	return Mode >= EAEHeatmapDebugMode::PassExposure && Mode <= EAEHeatmapDebugMode::CurrentExposure;
+}
+
+/* Return whether the selected layer is derived from M4 state. */
+bool UAEHeatmapRendererComponent::IsM4Mode() const
+{
+	return Mode >= EAEHeatmapDebugMode::ConstraintPressure && Mode <= EAEHeatmapDebugMode::EnvironmentState;
+}
+
+/* Return whether the selected layer is derived from M5 state. */
+bool UAEHeatmapRendererComponent::IsM5Mode() const
+{
+	return Mode >= EAEHeatmapDebugMode::EffectiveImpact;
 }
 
 /* Map the current M1 debug mode to one raw behavior metric. */
@@ -210,5 +250,31 @@ float UAEHeatmapRendererComponent::GetM3DisplayValue(const FAEM3CellSnapshot& Sn
 		return Snapshot.CurrentExposure;
 	default:
 		return 0.0f;
+	}
+}
+
+/* Map the current M4 debug mode to one committed constraint metric. */
+float UAEHeatmapRendererComponent::GetM4DisplayValue(const FAEEnvironmentConstraintSnapshot& Snapshot) const
+{
+	switch (Mode)
+	{
+	case EAEHeatmapDebugMode::ConstraintPressure: return Snapshot.ConstraintPressureRatio;
+	case EAEHeatmapDebugMode::HabitatSuitability: return Snapshot.HabitatSuitabilityRatio;
+	case EAEHeatmapDebugMode::EnvironmentState: return static_cast<float>(Snapshot.State);
+	default: return 0.0f;
+	}
+}
+
+/* Map the current M5 debug mode to one committed ecological response metric. */
+float UAEHeatmapRendererComponent::GetM5DisplayValue(const FAEEcologicalResponseSnapshot& Snapshot) const
+{
+	switch (Mode)
+	{
+	case EAEHeatmapDebugMode::EffectiveImpact: return Snapshot.EffectiveImpactRatio;
+	case EAEHeatmapDebugMode::Damage: return Snapshot.DamageRatio;
+	case EAEHeatmapDebugMode::Recovery: return Snapshot.RecoveryRatio;
+	case EAEHeatmapDebugMode::DamageRate: return Snapshot.DamageRatePerSimulationHour;
+	case EAEHeatmapDebugMode::RecoveryRate: return Snapshot.RecoveryRatePerSimulationHour;
+	default: return 0.0f;
 	}
 }

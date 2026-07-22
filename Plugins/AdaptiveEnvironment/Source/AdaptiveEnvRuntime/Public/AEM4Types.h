@@ -92,6 +92,19 @@ struct ADAPTIVEENVRUNTIME_API FAEEnvironmentConstraintSnapshot
 {
 	GENERATED_BODY()
 
+	/* Stores the integer XY Cell coordinate. */
+	UPROPERTY(BlueprintReadOnly, Category = "Adaptive Environment|M4")
+	FIntPoint Coordinate = FIntPoint::ZeroValue;
+	/* Stores the Cell centre in world centimetres at the sampled ground height. */
+	UPROPERTY(BlueprintReadOnly, Category = "Adaptive Environment|M4")
+	FVector WorldCenter = FVector::ZeroVector;
+	/* Stores the sampled ground slope in degrees. */
+	UPROPERTY(BlueprintReadOnly, Category = "Adaptive Environment|M4")
+	float SlopeDegrees = 0.0f;
+	/* Stores the selected moisture-source value in the zero-to-one range. */
+	UPROPERTY(BlueprintReadOnly, Category = "Adaptive Environment|M4")
+	float MoistureRatio = 0.5f;
+
 	/* Stores normalized combined slope and moisture pressure from zero to one. */
 	UPROPERTY(BlueprintReadOnly, Category = "Adaptive Environment|M4")
 	float ConstraintPressureRatio = 0.0f;
@@ -101,4 +114,10 @@ struct ADAPTIVEENVRUNTIME_API FAEEnvironmentConstraintSnapshot
 	/* Stores the environment state committed after hysteresis and debounce. */
 	UPROPERTY(BlueprintReadOnly, Category = "Adaptive Environment|M4")
 	EAERegionState State = EAERegionState::Unused;
+	/* Identifies the latest committed M4 Grid change affecting this Cell. */
+	UPROPERTY(BlueprintReadOnly, Category = "Adaptive Environment|M4")
+	int64 ConstraintRevision = 0;
+	/* Identifies the fixed simulation step that produced this snapshot. */
+	UPROPERTY(BlueprintReadOnly, Category = "Adaptive Environment|M4")
+	int64 SimulationStep = 0;
 };

@@ -3,6 +3,7 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "AEM4ParameterService.h"
+#include "AEEnvironmentConstraintGrid.h"
 
 namespace AdaptiveEnvM4Tests
 {
@@ -61,6 +62,34 @@ bool FAEM4HysteresisDebounceTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("State remains Unused before debounce"), State.CurrentState, EAERegionState::Unused);
 	FAEM4ParameterService::EvaluateEnvironment(30.0, 0.5, 0.25, Values, State);
 	TestEqual(TEXT("State commits after debounce"), State.CurrentState, EAERegionState::Active);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAEM4GridRevisionTest, "AdaptiveEnv.M4.Grid.CommitRevisionAndFailClosed", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+/* Verifies deterministic M4 Grid commits and invalid-observation retention. */
+bool FAEM4GridRevisionTest::RunTest(const FString& Parameters)
+{
+	FAEHeatmapGridConfig Config;
+	Config.Dimensions = FIntPoint(1, 1);
+	Config.CellSizeCm = 100.0f;
+	FAEEnvironmentConstraintGrid Grid;
+	TestTrue(TEXT("M4 Grid initializes"), Grid.Initialize(Config));
+	FAEWorldConstraintObservation Observation;
+	Observation.Coordinate = FIntPoint::ZeroValue;
+	Observation.WorldCenter = FVector(0.0, 0.0, 25.0);
+	Observation.SlopeDegrees = 10.0;
+	Observation.MoistureRatio = 0.5;
+	Observation.bValid = true;
+	TestTrue(TEXT("Valid observation commits"), Grid.Update({Observation}, 0.5, 1, AdaptiveEnvM4Tests::MakeParameters()));
+	FAEEnvironmentConstraintSnapshot First;
+	TestTrue(TEXT("Committed M4 Cell is queryable"), Grid.GetCellSnapshot(FIntPoint::ZeroValue, First));
+	TestEqual(TEXT("First commit increments revision"), Grid.GetConstraintRevision(), static_cast<uint64>(1));
+	Observation.bValid = false;
+	TestTrue(TEXT("Invalid observation does not fail the batch"), Grid.Update({Observation}, 0.5, 2, AdaptiveEnvM4Tests::MakeParameters()));
+	FAEEnvironmentConstraintSnapshot Retained;
+	Grid.GetCellSnapshot(FIntPoint::ZeroValue, Retained);
+	TestEqual(TEXT("Fail-closed input preserves revision"), Retained.ConstraintRevision, First.ConstraintRevision);
 	return true;
 }
 

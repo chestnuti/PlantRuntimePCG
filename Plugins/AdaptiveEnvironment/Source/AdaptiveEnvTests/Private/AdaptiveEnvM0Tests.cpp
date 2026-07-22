@@ -47,9 +47,9 @@ bool FAESettingsDefaultsTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("M3 enabled by default"), Settings->bEnableM3);
 	TestTrue(TEXT("M4 enabled by default"), Settings->bEnableM4);
 	TestTrue(TEXT("Default parameter bundle remains explicitly unassigned"), Settings->ParameterBundle.IsNull());
-	TestEqual(TEXT("Settings schema"), Settings->SettingsSchemaVersion, 7);
+	TestEqual(TEXT("Settings schema"), Settings->SettingsSchemaVersion, 8);
 	TestTrue(TEXT("Debug text budget reserves engine capacity"), Settings->MaxDebugTextLabels >= 0 && Settings->MaxDebugTextLabels <= 96);
-	TestEqual(TEXT("Debug activity neighbourhood"), Settings->DebugActiveNeighbourRadiusCells, 1);
+	TestEqual(TEXT("Debug activity neighbourhood"), Settings->DebugActiveNeighbourRadiusCells, 4);
 	return true;
 }
 

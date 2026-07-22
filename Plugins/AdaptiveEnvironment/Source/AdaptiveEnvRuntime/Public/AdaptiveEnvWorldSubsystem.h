@@ -2,6 +2,8 @@
 
 #include "CoreMinimal.h"
 #include "AEExposureGrid.h"
+#include "AEEnvironmentConstraintGrid.h"
+#include "AEEcologicalResponseGrid.h"
 #include "AEHeatmapGrid.h"
 #include "AEM4Types.h"
 #include "Subsystems/WorldSubsystem.h"
@@ -9,6 +11,7 @@
 
 class UAEBehaviourTrackerComponent;
 class UAEHeatmapRendererComponent;
+class UAEMoistureSourceComponent;
 class UAEPublishedParameterBundleAsset;
 
 UCLASS()
@@ -60,6 +63,10 @@ public:
 	void RegisterHeatmapRenderer(UAEHeatmapRendererComponent* Renderer);
 	/* Queues a debug renderer for removal. */
 	void UnregisterHeatmapRenderer(UAEHeatmapRendererComponent* Renderer);
+	/* Queues one M4 moisture source for safe registration. */
+	void RegisterMoistureSource(UAEMoistureSourceComponent* Source);
+	/* Queues one M4 moisture source for safe removal. */
+	void UnregisterMoistureSource(UAEMoistureSourceComponent* Source);
 
 	/* Reads the cell containing a world position in centimetres. */
 	UFUNCTION(BlueprintPure, Category = "Adaptive Environment|Heatmap")
@@ -121,10 +128,34 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Adaptive Environment|M3")
 	int64 GetExposureRevision() const { return static_cast<int64>(ExposureGrid.GetExposureRevision()); }
 
+	/* Reads one committed M4 Cell by integer XY coordinate. */
+	UFUNCTION(BlueprintPure, Category = "Adaptive Environment|M4")
+	bool GetM4Cell(const FIntPoint& Coordinate, FAEEnvironmentConstraintSnapshot& OutSnapshot) const;
+	/* Reads one committed M4 Cell containing a world position. */
+	UFUNCTION(BlueprintPure, Category = "Adaptive Environment|M4")
+	bool GetM4CellAtWorldLocation(const FVector& Location, FAEEnvironmentConstraintSnapshot& OutSnapshot) const;
+	/* Returns the latest committed M4 revision. */
+	UFUNCTION(BlueprintPure, Category = "Adaptive Environment|M4")
+	int64 GetConstraintRevision() const { return static_cast<int64>(ConstraintGrid.GetConstraintRevision()); }
+
+	/* Reads one committed M5 Cell by integer XY coordinate. */
+	UFUNCTION(BlueprintPure, Category = "Adaptive Environment|M5")
+	bool GetM5Cell(const FIntPoint& Coordinate, FAEEcologicalResponseSnapshot& OutSnapshot) const;
+	/* Reads one committed M5 Cell containing a world position. */
+	UFUNCTION(BlueprintPure, Category = "Adaptive Environment|M5")
+	bool GetM5CellAtWorldLocation(const FVector& Location, FAEEcologicalResponseSnapshot& OutSnapshot) const;
+	/* Returns the latest committed M5 revision. */
+	UFUNCTION(BlueprintPure, Category = "Adaptive Environment|M5")
+	int64 GetResponseRevision() const { return static_cast<int64>(ResponseGrid.GetResponseRevision()); }
+
 	/* Collects non-empty cells around a world position for debug drawing. */
 	void GetDebugCells(const FVector& Location, float RadiusCm, int32 MaxCells, TArray<FAEBehaviourCellSnapshot>& OutCells) const;
 	/* Collects active M3 cells around a world position for read-only debug drawing. */
 	void GetM3DebugCells(const FVector& Location, float RadiusCm, int32 MaxCells, TArray<FAEM3CellSnapshot>& OutCells) const;
+	/* Collects committed M4 cells around recent activity for debug drawing. */
+	void GetM4DebugCells(const FVector& Location, float RadiusCm, int32 MaxCells, TArray<FAEEnvironmentConstraintSnapshot>& OutCells) const;
+	/* Collects committed M5 cells around recent activity for debug drawing. */
+	void GetM5DebugCells(const FVector& Location, float RadiusCm, int32 MaxCells, TArray<FAEEcologicalResponseSnapshot>& OutCells) const;
 	/* Returns the parameter-derived default colour maximum for one M3 debug mode. */
 	float GetM3DebugMaximumValue(EAEHeatmapDebugMode Mode) const;
 
@@ -141,6 +172,10 @@ private:
 	void ProcessPendingSamples();
 	/* Advances Exposure and ecological response after raw aggregation for one fixed step. */
 	void UpdateM3(float StepSeconds);
+	/* Samples World constraints and commits M4 after M3 for one fixed step. */
+	void UpdateM4(float StepSeconds);
+	/* Freezes compatible M3/M4 inputs and commits M5 after M4. */
+	void UpdateM5(float StepSeconds);
 	/* Rebuilds M3 once from all current raw Cell totals after a parameter-package switch. */
 	void RebuildM3FromCurrentRawGrid();
 	/* Accumulates raw Cells changed since the previous completed debug refresh. */
@@ -162,14 +197,20 @@ private:
 	FAEHeatmapGrid BehaviourGrid;
 	/* Owns derived M3 Exposure state aligned with the raw Grid. */
 	FAEExposureGrid ExposureGrid;
+	/* Owns sampled M4 constraints and state decisions aligned with M1. */
+	FAEEnvironmentConstraintGrid ConstraintGrid;
+	/* Owns fused M5 ecological response state aligned with M1. */
+	FAEEcologicalResponseGrid ResponseGrid;
 	/* Stores the atomically committed bundle identity and grouped M3/M4 parameter values. */
 	FAEActiveParameterSnapshot ActiveParameters;
 	/* Controls M3 updates independently from the valid M1 runtime pipeline. */
 	bool bM3Enabled = false;
 	/* Controls M4 decisions independently while sharing the active bundle snapshot. */
 	bool bM4Enabled = false;
-	/* Controls M5 response availability while World-level M5 Grid integration remains planned. */
+	/* Controls World-level M5 response updates. */
 	bool bM5Enabled = false;
+	/* Counts failed M4 World samples retained by fail-closed submission. */
+	uint64 M4InvalidSampleCount = 0;
 	/* Converts one real second into simulated hours for M3 integration. */
 	double SimulationHoursPerRealSecond = 0.0;
 	/* Accumulates render time awaiting fixed behaviour steps. */
@@ -200,6 +241,12 @@ private:
 	TArray<TWeakObjectPtr<UAEHeatmapRendererComponent>> PendingRendererAdds;
 	/* Stores renderers awaiting safe removal. */
 	TArray<TWeakObjectPtr<UAEHeatmapRendererComponent>> PendingRendererRemoves;
+	/* Stores active registered M4 moisture sources. */
+	TArray<TWeakObjectPtr<UAEMoistureSourceComponent>> RegisteredMoistureSources;
+	/* Stores M4 moisture sources awaiting safe registration. */
+	TArray<TWeakObjectPtr<UAEMoistureSourceComponent>> PendingMoistureSourceAdds;
+	/* Stores M4 moisture sources awaiting safe removal. */
+	TArray<TWeakObjectPtr<UAEMoistureSourceComponent>> PendingMoistureSourceRemoves;
 	/* Collects samples submitted during the current producer phase. */
 	TArray<FAEBehaviourSample> PendingSamples;
 	/* Owns the stable sample batch currently being sorted and processed. */

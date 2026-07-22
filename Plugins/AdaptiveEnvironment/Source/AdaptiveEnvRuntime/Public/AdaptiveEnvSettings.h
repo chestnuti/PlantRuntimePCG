@@ -110,11 +110,19 @@ public:
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Simulation", meta = (ClampMin = "0.0", UIMin = "0.0"))
 	float SimulationHoursPerRealSecond = 6.0f;
 
+	/* Defines the vertical half-length used to trace ground at an M4 Cell centre in centimetres. */
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "M4", meta = (ClampMin = "1.0"))
+	float M4GroundTraceHalfHeightCm = 100000.0f;
+
+	/* Supplies normalized moisture when no registered source contains an M4 Cell. */
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "M4", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float M4DefaultMoistureRatio = 0.5f;
+
 	/* Provides a deterministic default seed. */
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Simulation")
 	int32 DefaultRandomSeed = 1337;
 
 	/* Identifies the serialized settings schema version. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Version")
-	int32 SettingsSchemaVersion = 7;
+	int32 SettingsSchemaVersion = 8;
 };

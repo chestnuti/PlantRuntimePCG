@@ -28,7 +28,7 @@ enum class EAEBehaviourSubmitResult : uint8
 	OutOfOrder
 };
 
-/* Selects the M1 behaviour or M3 Exposure metric drawn by the debug renderer. */
+/* Selects the M1 behaviour or committed M3-M5 metric drawn by the debug renderer. */
 UENUM(BlueprintType)
 enum class EAEHeatmapDebugMode : uint8
 {
@@ -44,7 +44,15 @@ enum class EAEHeatmapDebugMode : uint8
 	SprintExposure,
 	CollectExposure,
 	CombatExposure,
-	CurrentExposure
+	CurrentExposure,
+	ConstraintPressure,
+	HabitatSuitability,
+	EnvironmentState,
+	EffectiveImpact,
+	Damage,
+	Recovery,
+	DamageRate,
+	RecoveryRate
 };
 
 /* Captures one timestamped agent observation or discrete event. */

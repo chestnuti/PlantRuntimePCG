@@ -32,6 +32,8 @@ public:
 	void GetActiveCellsInRadius(const FVector& WorldLocation, float RadiusCm, int32 MaxCells, TArray<FAEM3CellSnapshot>& OutCells) const;
 	/* Returns the latest global Exposure revision. */
 	uint64 GetExposureRevision() const { return ExposureRevision; }
+	/* Returns row-major indices changed by the latest successful M3 update. */
+	const TArray<int32>& GetLastChangedCellIndices() const { return LastChangedCellIndices; }
 	/* Returns the number of Cells requiring continued decay. */
 	int32 GetActiveCellCount() const { return ActiveCellCount; }
 
@@ -88,4 +90,6 @@ private:
 	int32 ActiveCellCount = 0;
 	/* Increments once for each fixed step that changes any Exposure state. */
 	uint64 ExposureRevision = 0;
+	/* Stores row-major indices changed by the latest successful update. */
+	TArray<int32> LastChangedCellIndices;
 };

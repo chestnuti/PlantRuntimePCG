@@ -2,6 +2,8 @@
 
 #include "AEBehaviourTrackerComponent.h"
 #include "AEHeatmapRendererComponent.h"
+#include "AEMoistureSourceComponent.h"
+#include "AEWorldConstraintProvider.h"
 #include "AEParameterBundleService.h"
 #include "AEM3ParameterService.h"
 #include "AEM4ParameterService.h"
@@ -42,6 +44,11 @@ void UAEAdaptiveEnvWorldSubsystem::Initialize(FSubsystemCollectionBase& Collecti
 	{
 		bRuntimeEnabled = false;
 		UE_LOG(LogAdaptiveEnv, Error, TEXT("M3 grid initialization failed."));
+	}
+	if (!ConstraintGrid.Initialize(GridConfig) || !ResponseGrid.Initialize(GridConfig))
+	{
+		bRuntimeEnabled = false;
+		UE_LOG(LogAdaptiveEnv, Error, TEXT("M4/M5 grid initialization failed."));
 	}
 
 	// Load one atomic M3/M4/M5 bundle without disabling the validated M1 pipeline when absent.
@@ -99,6 +106,9 @@ void UAEAdaptiveEnvWorldSubsystem::Deinitialize()
 	RegisteredRenderers.Reset();
 	PendingRendererAdds.Reset();
 	PendingRendererRemoves.Reset();
+	RegisteredMoistureSources.Reset();
+	PendingMoistureSourceAdds.Reset();
+	PendingMoistureSourceRemoves.Reset();
 	PendingSamples.Reset();
 	ProcessingSamples.Reset();
 	PendingDebugActiveCellIndices.Reset();
@@ -106,8 +116,11 @@ void UAEAdaptiveEnvWorldSubsystem::Deinitialize()
 	LastQueuedTimestampByAgent.Reset();
 	BehaviourGrid.Reset();
 	ExposureGrid.Reset();
+	ConstraintGrid.Reset();
+	ResponseGrid.Reset();
 	bM3Enabled = false;
 	bM4Enabled = false;
+	bM5Enabled = false;
 	Super::Deinitialize();
 }
 
@@ -141,6 +154,8 @@ void UAEAdaptiveEnvWorldSubsystem::Tick(float DeltaTime)
 		SampleRegisteredTrackers(BehaviourStepSeconds);
 		ProcessPendingSamples();
 		UpdateM3(BehaviourStepSeconds);
+		UpdateM4(BehaviourStepSeconds);
+		UpdateM5(BehaviourStepSeconds);
 		AccumulateDebugActiveCells();
 		++ProcessedBehaviourStepCount;
 	}
@@ -251,6 +266,18 @@ void UAEAdaptiveEnvWorldSubsystem::UnregisterHeatmapRenderer(UAEHeatmapRendererC
 	}
 }
 
+/* Defer moisture-source registration until the next safe pipeline boundary. */
+void UAEAdaptiveEnvWorldSubsystem::RegisterMoistureSource(UAEMoistureSourceComponent* Source)
+{
+	if (IsValid(Source)) PendingMoistureSourceAdds.AddUnique(Source);
+}
+
+/* Defer moisture-source removal until the next safe pipeline boundary. */
+void UAEAdaptiveEnvWorldSubsystem::UnregisterMoistureSource(UAEMoistureSourceComponent* Source)
+{
+	if (Source != nullptr) PendingMoistureSourceRemoves.AddUnique(Source);
+}
+
 // Forward a world-position cell query to the owned behaviour grid.
 bool UAEAdaptiveEnvWorldSubsystem::GetBehaviourCellAtWorldLocation(const FVector& Location, FAEBehaviourCellSnapshot& OutSnapshot) const
 {
@@ -299,6 +326,9 @@ void UAEAdaptiveEnvWorldSubsystem::ResetBehaviourGrid()
 	// Clear grid data, queues, ordering guards, clocks, and scheduler counters.
 	BehaviourGrid.Reset();
 	ExposureGrid.Reset();
+	ConstraintGrid.Reset();
+	ResponseGrid.Reset();
+	M4InvalidSampleCount = 0;
 	PendingSamples.Reset();
 	ProcessingSamples.Reset();
 	LastQueuedSequenceByAgent.Reset();
@@ -369,6 +399,8 @@ bool UAEAdaptiveEnvWorldSubsystem::ApplyParameterBundle(UAEPublishedParameterBun
 	bM4Enabled = true;
 	bM5Enabled = true;
 	RebuildM3FromCurrentRawGrid();
+	ConstraintGrid.Reset();
+	ResponseGrid.Reset();
 	UE_LOG(
 		LogAdaptiveEnv,
 		Log,
@@ -390,6 +422,30 @@ bool UAEAdaptiveEnvWorldSubsystem::GetM3Cell(const FIntPoint& Coordinate, FAEM3C
 bool UAEAdaptiveEnvWorldSubsystem::GetM3CellAtWorldLocation(const FVector& Location, FAEM3CellSnapshot& OutSnapshot) const
 {
 	return bM3Enabled && ExposureGrid.GetCellSnapshotAtWorldLocation(Location, OutSnapshot);
+}
+
+/* Forward one coordinate query to the World-owned M4 Grid. */
+bool UAEAdaptiveEnvWorldSubsystem::GetM4Cell(const FIntPoint& Coordinate, FAEEnvironmentConstraintSnapshot& OutSnapshot) const
+{
+	return bM4Enabled && ConstraintGrid.GetCellSnapshot(Coordinate, OutSnapshot);
+}
+
+/* Forward one world-position query to the World-owned M4 Grid. */
+bool UAEAdaptiveEnvWorldSubsystem::GetM4CellAtWorldLocation(const FVector& Location, FAEEnvironmentConstraintSnapshot& OutSnapshot) const
+{
+	return bM4Enabled && ConstraintGrid.GetCellSnapshotAtWorldLocation(Location, OutSnapshot);
+}
+
+/* Forward one coordinate query to the World-owned M5 Grid. */
+bool UAEAdaptiveEnvWorldSubsystem::GetM5Cell(const FIntPoint& Coordinate, FAEEcologicalResponseSnapshot& OutSnapshot) const
+{
+	return bM5Enabled && ResponseGrid.GetCellSnapshot(Coordinate, OutSnapshot);
+}
+
+/* Forward one world-position query to the World-owned M5 Grid. */
+bool UAEAdaptiveEnvWorldSubsystem::GetM5CellAtWorldLocation(const FVector& Location, FAEEcologicalResponseSnapshot& OutSnapshot) const
+{
+	return bM5Enabled && ResponseGrid.GetCellSnapshotAtWorldLocation(Location, OutSnapshot);
 }
 
 // Forward a bounded debug-cell query to the behaviour grid.
@@ -432,6 +488,34 @@ void UAEAdaptiveEnvWorldSubsystem::GetM3DebugCells(
 		{
 			OutCells.Add(MoveTemp(Snapshot));
 		}
+	}
+}
+
+/* Collect committed M4 snapshots through the shared bounded debug coordinate window. */
+void UAEAdaptiveEnvWorldSubsystem::GetM4DebugCells(const FVector& Location, const float RadiusCm, const int32 MaxCells, TArray<FAEEnvironmentConstraintSnapshot>& OutCells) const
+{
+	OutCells.Reset();
+	if (!bM4Enabled) return;
+	TArray<FIntPoint> Coordinates;
+	BuildDebugCellCoordinates(Location, RadiusCm, MaxCells, Coordinates);
+	for (const FIntPoint& Coordinate : Coordinates)
+	{
+		FAEEnvironmentConstraintSnapshot Snapshot;
+		if (ConstraintGrid.GetCellSnapshot(Coordinate, Snapshot)) OutCells.Add(MoveTemp(Snapshot));
+	}
+}
+
+/* Collect committed M5 snapshots through the shared bounded debug coordinate window. */
+void UAEAdaptiveEnvWorldSubsystem::GetM5DebugCells(const FVector& Location, const float RadiusCm, const int32 MaxCells, TArray<FAEEcologicalResponseSnapshot>& OutCells) const
+{
+	OutCells.Reset();
+	if (!bM5Enabled) return;
+	TArray<FIntPoint> Coordinates;
+	BuildDebugCellCoordinates(Location, RadiusCm, MaxCells, Coordinates);
+	for (const FIntPoint& Coordinate : Coordinates)
+	{
+		FAEEcologicalResponseSnapshot Snapshot;
+		if (ResponseGrid.GetCellSnapshot(Coordinate, Snapshot)) OutCells.Add(MoveTemp(Snapshot));
 	}
 }
 
@@ -488,6 +572,19 @@ void UAEAdaptiveEnvWorldSubsystem::ApplyPendingRegistrations()
 		}
 	}
 	PendingRendererAdds.Reset();
+
+	// Apply moisture-source removals before additions so sampling sees one stable array.
+	for (const TWeakObjectPtr<UAEMoistureSourceComponent>& Source : PendingMoistureSourceRemoves)
+	{
+		RegisteredMoistureSources.Remove(Source);
+	}
+	PendingMoistureSourceRemoves.Reset();
+	RegisteredMoistureSources.RemoveAll([](const TWeakObjectPtr<UAEMoistureSourceComponent>& Item) { return !Item.IsValid(); });
+	for (const TWeakObjectPtr<UAEMoistureSourceComponent>& Source : PendingMoistureSourceAdds)
+	{
+		if (Source.IsValid()) RegisteredMoistureSources.AddUnique(Source);
+	}
+	PendingMoistureSourceAdds.Reset();
 }
 
 // Pull one sample from each valid tracker at the shared fixed time.
@@ -558,6 +655,89 @@ void UAEAdaptiveEnvWorldSubsystem::UpdateM3(const float StepSeconds)
 	{
 		bM3Enabled = false;
 		UE_LOG(LogAdaptiveEnv, Error, TEXT("M3 update failed and was disabled. World=%s BehaviourRevision=%llu"), *GetNameSafe(GetWorld()), BehaviourGrid.GetBehaviourRevision());
+	}
+}
+
+/* Sample terrain and moisture, then commit M4 before any M5 input is frozen. */
+void UAEAdaptiveEnvWorldSubsystem::UpdateM4(const float StepSeconds)
+{
+	if (!bM4Enabled) return;
+	UWorld* World = GetWorld();
+	if (World == nullptr)
+	{
+		bM4Enabled = false;
+		return;
+	}
+
+	// Merge raw and M3 changes with Cells still waiting on an M4 transition.
+	TArray<int32> NewlyRelevant = BehaviourGrid.GetDirtyCellIndices();
+	for (const int32 Index : ExposureGrid.GetLastChangedCellIndices()) NewlyRelevant.AddUnique(Index);
+	TArray<int32> CandidateIndices;
+	ConstraintGrid.BuildCandidateIndices(NewlyRelevant, CandidateIndices);
+	TArray<FAEWorldConstraintObservation> Observations;
+	Observations.Reserve(CandidateIndices.Num());
+	const UAdaptiveEnvSettings* Settings = GetDefault<UAdaptiveEnvSettings>();
+	const FIntPoint Dimensions = BehaviourGrid.GetConfig().Dimensions;
+
+	// Execute UObject and collision queries only on the Game Thread.
+	for (const int32 Index : CandidateIndices)
+	{
+		if (Index < 0 || Index >= Dimensions.X * Dimensions.Y) continue;
+		const FIntPoint Coordinate(Index % Dimensions.X, Index / Dimensions.X);
+		FAEWorldConstraintObservation Observation;
+		if (FAEWorldConstraintProvider::SampleCell(*World, Coordinate, ConstraintGrid.GetCellWorldCenter(Coordinate),
+			Settings->M4GroundTraceHalfHeightCm, Settings->M4DefaultMoistureRatio, RegisteredMoistureSources, Observation))
+		{
+			Observations.Add(MoveTemp(Observation));
+		}
+		else
+		{
+			++M4InvalidSampleCount;
+		}
+	}
+	const double DeltaSimulationHours = static_cast<double>(StepSeconds) * SimulationHoursPerRealSecond;
+	if (!ConstraintGrid.Update(Observations, DeltaSimulationHours, static_cast<uint64>(ProcessedBehaviourStepCount + 1), ActiveParameters.M4))
+	{
+		bM4Enabled = false;
+		bM5Enabled = false;
+		UE_LOG(LogAdaptiveEnv, Error, TEXT("M4 update failed; M4 and dependent M5 were disabled. World=%s"), *GetNameSafe(World));
+	}
+}
+
+/* Freeze matching committed M3/M4 snapshots and advance the sole Damage owner. */
+void UAEAdaptiveEnvWorldSubsystem::UpdateM5(const float StepSeconds)
+{
+	if (!bM5Enabled || !bM3Enabled || !bM4Enabled) return;
+	TArray<int32> CandidateIndices;
+	ResponseGrid.BuildCandidateIndices(ExposureGrid.GetLastChangedCellIndices(), ConstraintGrid.GetLastChangedCellIndices(), CandidateIndices);
+	TArray<FAEM5InputSnapshot> Inputs;
+	Inputs.Reserve(CandidateIndices.Num());
+	const FIntPoint Dimensions = BehaviourGrid.GetConfig().Dimensions;
+
+	// Freeze only Cells with both upstream snapshots committed for this World.
+	for (const int32 Index : CandidateIndices)
+	{
+		if (Index < 0 || Index >= Dimensions.X * Dimensions.Y) continue;
+		const FIntPoint Coordinate(Index % Dimensions.X, Index / Dimensions.X);
+		FAEM3CellSnapshot M3;
+		FAEEnvironmentConstraintSnapshot M4;
+		if (!ExposureGrid.GetCellSnapshot(Coordinate, M3) || !ConstraintGrid.GetCellSnapshot(Coordinate, M4)) continue;
+		FAEM5InputSnapshot& Input = Inputs.AddDefaulted_GetRef();
+		Input.Coordinate = Coordinate;
+		Input.Exposure = M3.CurrentExposure;
+		Input.ExposureMaximum = ActiveParameters.M3.ExposureDynamics.Maximum;
+		Input.ConstraintPressureRatio = M4.ConstraintPressureRatio;
+		Input.HabitatSuitabilityRatio = M4.HabitatSuitabilityRatio;
+		Input.ExposureRevision = static_cast<uint64>(FMath::Max(M3.ExposureRevision, static_cast<int64>(0)));
+		Input.ConstraintRevision = static_cast<uint64>(FMath::Max(M4.ConstraintRevision, static_cast<int64>(0)));
+		Input.SimulationStep = static_cast<uint64>(ProcessedBehaviourStepCount + 1);
+		Input.BundleIdentity = ActiveParameters.BundleIdentity;
+	}
+	const double DeltaSimulationHours = static_cast<double>(StepSeconds) * SimulationHoursPerRealSecond;
+	if (!ResponseGrid.Update(Inputs, DeltaSimulationHours, ActiveParameters.M5, ActiveParameters.BundleIdentity))
+	{
+		bM5Enabled = false;
+		UE_LOG(LogAdaptiveEnv, Error, TEXT("M5 update failed and was disabled. World=%s"), *GetNameSafe(GetWorld()));
 	}
 }
 
