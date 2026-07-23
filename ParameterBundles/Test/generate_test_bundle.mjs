@@ -59,6 +59,45 @@ function sha256(text) {
   return createHash("sha256").update(text, "utf8").digest("hex");
 }
 
+function ueDouble(value) {
+  const precise = value.toPrecision(17);
+  if (precise.includes("e")) {
+    const [mantissa, exponent] = precise.split("e");
+    const normalizedMantissa = mantissa.replace(/(\.\d*?[1-9])0+$|\.0+$/, "$1");
+    const sign = exponent.startsWith("-") ? "-" : "+";
+    const digits = exponent.replace(/^[+-]/, "").padStart(2, "0");
+    return `${normalizedMantissa}e${sign}${digits}`;
+  }
+  return precise.replace(/(\.\d*?[1-9])0+$|\.0+$/, "$1");
+}
+
+function quote(value) {
+  return JSON.stringify(value);
+}
+
+function canonicalParameter(parameter) {
+  return `{"ParameterId":${quote(parameter.ParameterId)},"Name":${quote(parameter.Name)},"Unit":${quote(parameter.Unit)},` +
+    `"EvidenceBasedValue":${ueDouble(parameter.EvidenceBasedValue)},"EffectiveValue":${ueDouble(parameter.EffectiveValue)},` +
+    `"PlausibleMinimum":${ueDouble(parameter.PlausibleMinimum)},"PlausibleMaximum":${ueDouble(parameter.PlausibleMaximum)},` +
+    `"ParameterVersion":${quote(parameter.ParameterVersion)},"OriginLayer":${quote(parameter.OriginLayer)}}`;
+}
+
+function canonicalBlock(block, includeHash) {
+  const parameters = block.Parameters.map(canonicalParameter).join(",");
+  const hashField = includeHash ? `,"BlockHash":${quote(block.BlockHash)}` : "";
+  return `{"BlockId":${quote(block.BlockId)},"ModelContract":${quote(block.ModelContract)},` +
+    `"BlockVersion":${quote(block.BlockVersion)},"Parameters":[${parameters}]${hashField}}`;
+}
+
+function canonicalBundle(bundle, includeHash) {
+  const blocks = bundle.Blocks.map((block) => canonicalBlock(block, true)).join(",");
+  const hashField = includeHash ? `,"ContentHash":${quote(bundle.ContentHash)}` : "";
+  return `{"Format":${quote(bundle.Format)},"SchemaVersion":${bundle.SchemaVersion},"BundleId":${quote(bundle.BundleId)},` +
+    `"SemanticVersion":${quote(bundle.SemanticVersion)},"ParentContentHash":${quote(bundle.ParentContentHash)},` +
+    `"SourceAuditHash":${quote(bundle.SourceAuditHash)},"GeneratorVersion":${quote(bundle.GeneratorVersion)},` +
+    `"Blocks":[${blocks}]${hashField}}`;
+}
+
 function parameterGuid(blockIndex, parameterIndex) {
   const suffix = String(parameterIndex + 1).padStart(12, "0");
   return `ae00000${blockIndex + 3}-0000-0000-0000-${suffix}`;
@@ -87,7 +126,7 @@ function buildBlock(definition, blockIndex) {
     BlockVersion: "1.0.0",
     Parameters: parameters.map((parameter, index) => buildParameter(blockIndex, index, parameter)),
   };
-  return { ...blockWithoutHash, BlockHash: sha256(JSON.stringify(blockWithoutHash)) };
+  return { ...blockWithoutHash, BlockHash: sha256(canonicalBlock(blockWithoutHash, false)) };
 }
 
 const audit = {
@@ -120,11 +159,11 @@ const bundleWithoutContentHash = {
 };
 const bundle = {
   ...bundleWithoutContentHash,
-  ContentHash: sha256(JSON.stringify(bundleWithoutContentHash)),
+  ContentHash: sha256(canonicalBundle(bundleWithoutContentHash, false)),
 };
 
 writeFileSync(join(outputDirectory, "AdaptiveEnv_M3M4M5_Test_v1.audit.json"), auditJson, "utf8");
-writeFileSync(join(outputDirectory, "AdaptiveEnv_M3M4M5_Test_v1.aeparams.json"), JSON.stringify(bundle), "utf8");
+writeFileSync(join(outputDirectory, "AdaptiveEnv_M3M4M5_Test_v1.aeparams.json"), canonicalBundle(bundle, true), "utf8");
 
 console.log(JSON.stringify({
   bundle: "AdaptiveEnv_M3M4M5_Test_v1.aeparams.json",
