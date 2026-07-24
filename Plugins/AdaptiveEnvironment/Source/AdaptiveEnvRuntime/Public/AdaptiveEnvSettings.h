@@ -34,6 +34,10 @@ public:
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Parameters")
 	bool bEnableM5 = true;
 
+	/* Enables M6 path visual state and registered material outputs when M5 is active. */
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "M6")
+	bool bEnableM6 = true;
+
 	/* References the single published bundle that atomically supplies M3, M4, and M5 parameters. */
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Parameters")
 	TSoftObjectPtr<UAEPublishedParameterBundleAsset> ParameterBundle;
@@ -118,11 +122,51 @@ public:
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "M4", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float M4DefaultMoistureRatio = 0.5f;
 
+	/* Starts the M6 path target above this normalized M5 Damage value. */
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "M6|State", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float M6VisibleDamageThresholdRatio = 0.15f;
+
+	/* Reaches a full M6 path target at this normalized M5 Damage value. */
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "M6|State", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float M6FullPathDamageThresholdRatio = 0.65f;
+
+	/* Advances M6 path formation per simulation hour. */
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "M6|State", meta = (ClampMin = "0.0"))
+	float M6FormationRatePerSimulationHour = 0.20f;
+
+	/* Advances M6 path fading per simulation hour. */
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "M6|State", meta = (ClampMin = "0.0"))
+	float M6FadeRatePerSimulationHour = 0.08f;
+
+	/* Suppresses M6 state revisions below this normalized intensity difference. */
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "M6|State", meta = (ClampMin = "0.000001", ClampMax = "1.0"))
+	float M6DirtyIntensityEpsilon = 0.0039215686f;
+
+	/* Controls how often queued M6 commands may reach the Render Target. */
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "M6|Renderer", meta = (ClampMin = "0.1"))
+	float M6VisualApplyRateHz = 5.0f;
+
+	/* Limits M6 Cell texture updates applied during one visual refresh. */
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "M6|Renderer", meta = (ClampMin = "1"))
+	int32 M6MaxVisualCommandsPerFrame = 1024;
+
+	/* Names the Landscape texture parameter that receives the M6 Render Target. */
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "M6|Material")
+	FName M6PathTextureParameterName = TEXT("AE_PathHeatmapTexture");
+
+	/* Names the Landscape vector parameter storing WorldMin XY and inverse WorldSize XY. */
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "M6|Material")
+	FName M6GridTransformParameterName = TEXT("AE_PathGridTransform");
+
+	/* Names the Landscape scalar parameter that enables M6 texture sampling. */
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "M6|Material")
+	FName M6EnabledParameterName = TEXT("AE_PathHeatmapEnabled");
+
 	/* Provides a deterministic default seed. */
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Simulation")
 	int32 DefaultRandomSeed = 1337;
 
 	/* Identifies the serialized settings schema version. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Version")
-	int32 SettingsSchemaVersion = 8;
+	int32 SettingsSchemaVersion = 9;
 };

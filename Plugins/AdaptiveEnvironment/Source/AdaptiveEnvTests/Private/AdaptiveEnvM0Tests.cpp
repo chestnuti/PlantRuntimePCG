@@ -46,8 +46,17 @@ bool FAESettingsDefaultsTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("Cell size is positive"), Settings->CellSizeCm > 0.0f);
 	TestTrue(TEXT("M3 enabled by default"), Settings->bEnableM3);
 	TestTrue(TEXT("M4 enabled by default"), Settings->bEnableM4);
-	TestTrue(TEXT("Default parameter bundle remains explicitly unassigned"), Settings->ParameterBundle.IsNull());
-	TestEqual(TEXT("Settings schema"), Settings->SettingsSchemaVersion, 8);
+	TestTrue(TEXT("M6 enabled by default"), Settings->bEnableM6);
+	TestTrue(
+		TEXT("Optional parameter bundle path is syntactically valid"),
+		Settings->ParameterBundle.IsNull() || Settings->ParameterBundle.ToSoftObjectPath().IsValid());
+	TestEqual(TEXT("Settings schema"), Settings->SettingsSchemaVersion, 9);
+	TestEqual(TEXT("M6 visible threshold"), Settings->M6VisibleDamageThresholdRatio, 0.15f);
+	TestEqual(TEXT("M6 full-path threshold"), Settings->M6FullPathDamageThresholdRatio, 0.65f);
+	TestEqual(TEXT("M6 formation rate"), Settings->M6FormationRatePerSimulationHour, 0.20f);
+	TestEqual(TEXT("M6 fade rate"), Settings->M6FadeRatePerSimulationHour, 0.08f);
+	TestEqual(TEXT("M6 apply rate"), Settings->M6VisualApplyRateHz, 5.0f);
+	TestEqual(TEXT("M6 command budget"), Settings->M6MaxVisualCommandsPerFrame, 1024);
 	TestTrue(TEXT("Debug text budget reserves engine capacity"), Settings->MaxDebugTextLabels >= 0 && Settings->MaxDebugTextLabels <= 96);
 	TestEqual(TEXT("Debug activity neighbourhood"), Settings->DebugActiveNeighbourRadiusCells, 4);
 	return true;

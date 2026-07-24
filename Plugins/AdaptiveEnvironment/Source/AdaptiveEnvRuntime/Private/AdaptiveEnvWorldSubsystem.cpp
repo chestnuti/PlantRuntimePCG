@@ -2,6 +2,7 @@
 
 #include "AEBehaviourTrackerComponent.h"
 #include "AEHeatmapRendererComponent.h"
+#include "AEPathHeatmapRendererComponent.h"
 #include "AEMoistureSourceComponent.h"
 #include "AEWorldConstraintProvider.h"
 #include "AEParameterBundleService.h"
@@ -50,11 +51,24 @@ void UAEAdaptiveEnvWorldSubsystem::Initialize(FSubsystemCollectionBase& Collecti
 		bRuntimeEnabled = false;
 		UE_LOG(LogAdaptiveEnv, Error, TEXT("M4/M5 grid initialization failed."));
 	}
+	if (!PathHeatmapGrid.Initialize(GridConfig))
+	{
+		bRuntimeEnabled = false;
+		UE_LOG(LogAdaptiveEnv, Error, TEXT("M6 grid initialization failed."));
+	}
+
+	// Freeze user-configurable M6 values into one validated World parameter snapshot.
+	M6Parameters.VisibleDamageThresholdRatio = Settings->M6VisibleDamageThresholdRatio;
+	M6Parameters.FullPathDamageThresholdRatio = Settings->M6FullPathDamageThresholdRatio;
+	M6Parameters.FormationRatePerSimulationHour = Settings->M6FormationRatePerSimulationHour;
+	M6Parameters.FadeRatePerSimulationHour = Settings->M6FadeRatePerSimulationHour;
+	M6Parameters.DirtyIntensityEpsilon = Settings->M6DirtyIntensityEpsilon;
 
 	// Load one atomic M3/M4/M5 bundle without disabling the validated M1 pipeline when absent.
 	bM3Enabled = false;
 	bM4Enabled = false;
 	bM5Enabled = false;
+	bM6Enabled = false;
 	if (bRuntimeEnabled && (Settings->bEnableM3 || Settings->bEnableM4 || Settings->bEnableM5))
 	{
 		UAEPublishedParameterBundleAsset* Bundle = Settings->ParameterBundle.LoadSynchronous();
@@ -70,6 +84,7 @@ void UAEAdaptiveEnvWorldSubsystem::Initialize(FSubsystemCollectionBase& Collecti
 				bM3Enabled = Settings->bEnableM3;
 				bM4Enabled = Settings->bEnableM4;
 				bM5Enabled = Settings->bEnableM5;
+				bM6Enabled = Settings->bEnableM6 && bM5Enabled;
 			}
 		}
 		else
@@ -106,6 +121,17 @@ void UAEAdaptiveEnvWorldSubsystem::Deinitialize()
 	RegisteredRenderers.Reset();
 	PendingRendererAdds.Reset();
 	PendingRendererRemoves.Reset();
+	for (const TWeakObjectPtr<UAEPathHeatmapRendererComponent>& Renderer : RegisteredPathHeatmapRenderers)
+	{
+		if (Renderer.IsValid())
+		{
+			Renderer->ResetVisualOutput();
+		}
+	}
+	RegisteredPathHeatmapRenderers.Reset();
+	PendingPathHeatmapRendererAdds.Reset();
+	PendingPathHeatmapRendererRemoves.Reset();
+	PendingM6VisualCommands.Reset();
 	RegisteredMoistureSources.Reset();
 	PendingMoistureSourceAdds.Reset();
 	PendingMoistureSourceRemoves.Reset();
@@ -118,9 +144,11 @@ void UAEAdaptiveEnvWorldSubsystem::Deinitialize()
 	ExposureGrid.Reset();
 	ConstraintGrid.Reset();
 	ResponseGrid.Reset();
+	PathHeatmapGrid.Reset();
 	bM3Enabled = false;
 	bM4Enabled = false;
 	bM5Enabled = false;
+	bM6Enabled = false;
 	Super::Deinitialize();
 }
 
@@ -156,11 +184,13 @@ void UAEAdaptiveEnvWorldSubsystem::Tick(float DeltaTime)
 		UpdateM3(BehaviourStepSeconds);
 		UpdateM4(BehaviourStepSeconds);
 		UpdateM5(BehaviourStepSeconds);
+		UpdateM6(BehaviourStepSeconds);
 		AccumulateDebugActiveCells();
 		++ProcessedBehaviourStepCount;
 	}
 
-	// Draw the completed state, then clear only per-tick dirty markers.
+	// Apply final visual state after all fixed substeps, then draw debug output.
+	UpdateM6VisualRenderers(DeltaTime);
 	UpdateDebugRenderers(DeltaTime);
 	BehaviourGrid.ClearDirtyCells();
 }
@@ -278,6 +308,26 @@ void UAEAdaptiveEnvWorldSubsystem::UnregisterMoistureSource(UAEMoistureSourceCom
 	if (Source != nullptr) PendingMoistureSourceRemoves.AddUnique(Source);
 }
 
+/* Defer M6 renderer registration until the next safe pipeline boundary. */
+void UAEAdaptiveEnvWorldSubsystem::RegisterPathHeatmapRenderer(
+	UAEPathHeatmapRendererComponent* Renderer)
+{
+	if (IsValid(Renderer))
+	{
+		PendingPathHeatmapRendererAdds.AddUnique(Renderer);
+	}
+}
+
+/* Defer M6 renderer removal until the next safe pipeline boundary. */
+void UAEAdaptiveEnvWorldSubsystem::UnregisterPathHeatmapRenderer(
+	UAEPathHeatmapRendererComponent* Renderer)
+{
+	if (Renderer != nullptr)
+	{
+		PendingPathHeatmapRendererRemoves.AddUnique(Renderer);
+	}
+}
+
 // Forward a world-position cell query to the owned behaviour grid.
 bool UAEAdaptiveEnvWorldSubsystem::GetBehaviourCellAtWorldLocation(const FVector& Location, FAEBehaviourCellSnapshot& OutSnapshot) const
 {
@@ -328,6 +378,20 @@ void UAEAdaptiveEnvWorldSubsystem::ResetBehaviourGrid()
 	ExposureGrid.Reset();
 	ConstraintGrid.Reset();
 	ResponseGrid.Reset();
+	PathHeatmapGrid.Reset();
+	PendingM6VisualCommands.Reset();
+	M6VisualAccumulator = 0.0;
+	for (const TWeakObjectPtr<UAEPathHeatmapRendererComponent>& Renderer : RegisteredPathHeatmapRenderers)
+	{
+		if (Renderer.IsValid())
+		{
+			Renderer->ResetVisualOutput();
+			if (bM6Enabled)
+			{
+				Renderer->InitializeVisualOutput(GetGridDimensions(), GetGridWorldBounds());
+			}
+		}
+	}
 	M4InvalidSampleCount = 0;
 	PendingSamples.Reset();
 	ProcessingSamples.Reset();
@@ -398,9 +462,23 @@ bool UAEAdaptiveEnvWorldSubsystem::ApplyParameterBundle(UAEPublishedParameterBun
 	bM3Enabled = true;
 	bM4Enabled = true;
 	bM5Enabled = true;
+	bM6Enabled = GetDefault<UAdaptiveEnvSettings>()->bEnableM6;
 	RebuildM3FromCurrentRawGrid();
 	ConstraintGrid.Reset();
 	ResponseGrid.Reset();
+	PathHeatmapGrid.Reset();
+	PendingM6VisualCommands.Reset();
+	for (const TWeakObjectPtr<UAEPathHeatmapRendererComponent>& Renderer : RegisteredPathHeatmapRenderers)
+	{
+		if (Renderer.IsValid())
+		{
+			Renderer->ResetVisualOutput();
+			if (bM6Enabled)
+			{
+				Renderer->InitializeVisualOutput(GetGridDimensions(), GetGridWorldBounds());
+			}
+		}
+	}
 	UE_LOG(
 		LogAdaptiveEnv,
 		Log,
@@ -446,6 +524,24 @@ bool UAEAdaptiveEnvWorldSubsystem::GetM5Cell(const FIntPoint& Coordinate, FAEEco
 bool UAEAdaptiveEnvWorldSubsystem::GetM5CellAtWorldLocation(const FVector& Location, FAEEcologicalResponseSnapshot& OutSnapshot) const
 {
 	return bM5Enabled && ResponseGrid.GetCellSnapshotAtWorldLocation(Location, OutSnapshot);
+}
+
+/* Forward one coordinate query to the World-owned M6 Grid. */
+bool UAEAdaptiveEnvWorldSubsystem::GetM6Cell(
+	const FIntPoint& Coordinate,
+	FAEPathHeatmapSnapshot& OutSnapshot) const
+{
+	return bM6Enabled
+		&& PathHeatmapGrid.GetCellSnapshot(Coordinate, OutSnapshot);
+}
+
+/* Forward one world-position query to the World-owned M6 Grid. */
+bool UAEAdaptiveEnvWorldSubsystem::GetM6CellAtWorldLocation(
+	const FVector& Location,
+	FAEPathHeatmapSnapshot& OutSnapshot) const
+{
+	return bM6Enabled
+		&& PathHeatmapGrid.GetCellSnapshotAtWorldLocation(Location, OutSnapshot);
 }
 
 // Forward a bounded debug-cell query to the behaviour grid.
@@ -572,6 +668,32 @@ void UAEAdaptiveEnvWorldSubsystem::ApplyPendingRegistrations()
 		}
 	}
 	PendingRendererAdds.Reset();
+
+	// Apply M6 renderer removals before additions and initialize new visual bindings once.
+	for (const TWeakObjectPtr<UAEPathHeatmapRendererComponent>& Renderer : PendingPathHeatmapRendererRemoves)
+	{
+		RegisteredPathHeatmapRenderers.Remove(Renderer);
+	}
+	PendingPathHeatmapRendererRemoves.Reset();
+	RegisteredPathHeatmapRenderers.RemoveAll(
+		[](const TWeakObjectPtr<UAEPathHeatmapRendererComponent>& Item)
+		{
+			return !Item.IsValid();
+		});
+	for (const TWeakObjectPtr<UAEPathHeatmapRendererComponent>& Renderer : PendingPathHeatmapRendererAdds)
+	{
+		if (!Renderer.IsValid())
+		{
+			continue;
+		}
+		RegisteredPathHeatmapRenderers.AddUnique(Renderer);
+		if (bM6Enabled
+			&& Renderer->InitializeVisualOutput(GetGridDimensions(), GetGridWorldBounds()))
+		{
+			QueueFullM6VisualRebuild(*Renderer);
+		}
+	}
+	PendingPathHeatmapRendererAdds.Reset();
 
 	// Apply moisture-source removals before additions so sampling sees one stable array.
 	for (const TWeakObjectPtr<UAEMoistureSourceComponent>& Source : PendingMoistureSourceRemoves)
@@ -700,7 +822,8 @@ void UAEAdaptiveEnvWorldSubsystem::UpdateM4(const float StepSeconds)
 	{
 		bM4Enabled = false;
 		bM5Enabled = false;
-		UE_LOG(LogAdaptiveEnv, Error, TEXT("M4 update failed; M4 and dependent M5 were disabled. World=%s"), *GetNameSafe(World));
+		bM6Enabled = false;
+		UE_LOG(LogAdaptiveEnv, Error, TEXT("M4 update failed; M4 and dependent M5/M6 were disabled. World=%s"), *GetNameSafe(World));
 	}
 }
 
@@ -737,8 +860,124 @@ void UAEAdaptiveEnvWorldSubsystem::UpdateM5(const float StepSeconds)
 	if (!ResponseGrid.Update(Inputs, DeltaSimulationHours, ActiveParameters.M5, ActiveParameters.BundleIdentity))
 	{
 		bM5Enabled = false;
-		UE_LOG(LogAdaptiveEnv, Error, TEXT("M5 update failed and was disabled. World=%s"), *GetNameSafe(GetWorld()));
+		bM6Enabled = false;
+		UE_LOG(LogAdaptiveEnv, Error, TEXT("M5 update failed; M5 and dependent M6 were disabled. World=%s"), *GetNameSafe(GetWorld()));
 	}
+}
+
+/* Freeze M5 snapshots and advance complete M6 path visual state. */
+void UAEAdaptiveEnvWorldSubsystem::UpdateM6(const float StepSeconds)
+{
+	if (!bM6Enabled || !bM5Enabled)
+	{
+		return;
+	}
+
+	// Merge new M5 responses with Cells still completing an M6 visual transition.
+	TArray<int32> CandidateIndices;
+	PathHeatmapGrid.BuildCandidateIndices(
+		ResponseGrid.GetLastChangedCellIndices(),
+		CandidateIndices);
+	TArray<FAEM6InputSnapshot> Inputs;
+	Inputs.Reserve(CandidateIndices.Num());
+	const FIntPoint Dimensions = BehaviourGrid.GetConfig().Dimensions;
+	const uint64 CurrentStep = static_cast<uint64>(ProcessedBehaviourStepCount + 1);
+
+	// Freeze only committed M5 snapshots from valid shared Grid coordinates.
+	for (const int32 Index : CandidateIndices)
+	{
+		if (Index < 0 || Index >= Dimensions.X * Dimensions.Y)
+		{
+			continue;
+		}
+		const FIntPoint Coordinate(Index % Dimensions.X, Index / Dimensions.X);
+		FAEEcologicalResponseSnapshot M5;
+		if (!ResponseGrid.GetCellSnapshot(Coordinate, M5))
+		{
+			continue;
+		}
+		FAEM6InputSnapshot& Input = Inputs.AddDefaulted_GetRef();
+		Input.Coordinate = Coordinate;
+		Input.DamageRatio = M5.DamageRatio;
+		Input.SourceResponseRevision = static_cast<uint64>(
+			FMath::Max(M5.ResponseRevision, static_cast<int64>(0)));
+		Input.SourceResponseSimulationStep = static_cast<uint64>(
+			FMath::Max(M5.SimulationStep, static_cast<int64>(0)));
+		Input.CurrentSimulationStep = CurrentStep;
+	}
+
+	const double DeltaSimulationHours =
+		static_cast<double>(StepSeconds) * SimulationHoursPerRealSecond;
+	if (!PathHeatmapGrid.Update(Inputs, DeltaSimulationHours, M6Parameters))
+	{
+		bM6Enabled = false;
+		PendingM6VisualCommands.Reset();
+		for (const TWeakObjectPtr<UAEPathHeatmapRendererComponent>& Renderer : RegisteredPathHeatmapRenderers)
+		{
+			if (Renderer.IsValid())
+			{
+				Renderer->ResetVisualOutput();
+			}
+		}
+		UE_LOG(
+			LogAdaptiveEnv,
+			Error,
+			TEXT("M6 update failed and visual output was disabled. World=%s"),
+			*GetNameSafe(GetWorld()));
+		return;
+	}
+
+	// Coalesce all fixed substeps so render-frame pacing cannot lose a Cell update.
+	for (const FAEPathHeatmapVisualCommand& Command : PathHeatmapGrid.GetVisualCommands())
+	{
+		PendingM6VisualCommands.Add(Command.CellIndex, Command);
+	}
+}
+
+/* Flush coalesced M6 commands and apply a bounded visual refresh. */
+void UAEAdaptiveEnvWorldSubsystem::UpdateM6VisualRenderers(
+	const float DeltaTime)
+{
+	if (!bM6Enabled)
+	{
+		return;
+	}
+	const UAdaptiveEnvSettings* Settings = GetDefault<UAdaptiveEnvSettings>();
+	const double RefreshStep = 1.0 / FMath::Max(Settings->M6VisualApplyRateHz, 0.1f);
+	M6VisualAccumulator += FMath::Max(static_cast<double>(DeltaTime), 0.0);
+	if (M6VisualAccumulator < RefreshStep)
+	{
+		return;
+	}
+	M6VisualAccumulator = FMath::Fmod(M6VisualAccumulator, RefreshStep);
+
+	// Publish commands in row-major order before each renderer applies its own queue budget.
+	TArray<FAEPathHeatmapVisualCommand> OrderedCommands;
+	PendingM6VisualCommands.GenerateValueArray(OrderedCommands);
+	OrderedCommands.Sort(
+		[](const FAEPathHeatmapVisualCommand& A, const FAEPathHeatmapVisualCommand& B)
+		{
+			return A.CellIndex < B.CellIndex;
+		});
+	for (const TWeakObjectPtr<UAEPathHeatmapRendererComponent>& Renderer : RegisteredPathHeatmapRenderers)
+	{
+		if (Renderer.IsValid())
+		{
+			Renderer->EnqueueVisualCommands(OrderedCommands);
+			Renderer->ApplyVisualBudget(
+				FMath::Max(Settings->M6MaxVisualCommandsPerFrame, 1));
+		}
+	}
+	PendingM6VisualCommands.Reset();
+}
+
+/* Queue one deterministic full texture reconstruction for a newly bound renderer. */
+void UAEAdaptiveEnvWorldSubsystem::QueueFullM6VisualRebuild(
+	UAEPathHeatmapRendererComponent& Renderer) const
+{
+	TArray<FAEPathHeatmapVisualCommand> Commands;
+	PathHeatmapGrid.BuildFullVisualCommands(Commands);
+	Renderer.EnqueueVisualCommands(Commands);
 }
 
 /* Rebuild M3 deterministically from all current cumulative raw Cell totals. */

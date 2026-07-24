@@ -5,6 +5,7 @@
 #include "AEEnvironmentConstraintGrid.h"
 #include "AEEcologicalResponseGrid.h"
 #include "AEHeatmapGrid.h"
+#include "AEPathHeatmapGrid.h"
 #include "AEM4Types.h"
 #include "Subsystems/WorldSubsystem.h"
 #include "AdaptiveEnvWorldSubsystem.generated.h"
@@ -12,6 +13,7 @@
 class UAEBehaviourTrackerComponent;
 class UAEHeatmapRendererComponent;
 class UAEMoistureSourceComponent;
+class UAEPathHeatmapRendererComponent;
 class UAEPublishedParameterBundleAsset;
 
 UCLASS()
@@ -67,6 +69,10 @@ public:
 	void RegisterMoistureSource(UAEMoistureSourceComponent* Source);
 	/* Queues one M4 moisture source for safe removal. */
 	void UnregisterMoistureSource(UAEMoistureSourceComponent* Source);
+	/* Queues one M6 renderer for safe registration. */
+	void RegisterPathHeatmapRenderer(UAEPathHeatmapRendererComponent* Renderer);
+	/* Queues one M6 renderer for safe removal. */
+	void UnregisterPathHeatmapRenderer(UAEPathHeatmapRendererComponent* Renderer);
 
 	/* Reads the cell containing a world position in centimetres. */
 	UFUNCTION(BlueprintPure, Category = "Adaptive Environment|Heatmap")
@@ -148,6 +154,19 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Adaptive Environment|M5")
 	int64 GetResponseRevision() const { return static_cast<int64>(ResponseGrid.GetResponseRevision()); }
 
+	/* Returns whether M6 path visual state is enabled. */
+	UFUNCTION(BlueprintPure, Category = "Adaptive Environment|M6")
+	bool IsM6Enabled() const { return bM6Enabled; }
+	/* Reads one committed M6 Cell by integer XY coordinate. */
+	UFUNCTION(BlueprintPure, Category = "Adaptive Environment|M6")
+	bool GetM6Cell(const FIntPoint& Coordinate, FAEPathHeatmapSnapshot& OutSnapshot) const;
+	/* Reads one committed M6 Cell containing a world position. */
+	UFUNCTION(BlueprintPure, Category = "Adaptive Environment|M6")
+	bool GetM6CellAtWorldLocation(const FVector& Location, FAEPathHeatmapSnapshot& OutSnapshot) const;
+	/* Returns the latest committed M6 visual-state revision. */
+	UFUNCTION(BlueprintPure, Category = "Adaptive Environment|M6")
+	int64 GetPathVisualRevision() const { return static_cast<int64>(PathHeatmapGrid.GetPathVisualRevision()); }
+
 	/* Collects non-empty cells around a world position for debug drawing. */
 	void GetDebugCells(const FVector& Location, float RadiusCm, int32 MaxCells, TArray<FAEBehaviourCellSnapshot>& OutCells) const;
 	/* Collects active M3 cells around a world position for read-only debug drawing. */
@@ -176,6 +195,12 @@ private:
 	void UpdateM4(float StepSeconds);
 	/* Freezes compatible M3/M4 inputs and commits M5 after M4. */
 	void UpdateM5(float StepSeconds);
+	/* Advances complete M6 path visual state after M5 for one fixed step. */
+	void UpdateM6(float StepSeconds);
+	/* Applies queued M6 commands through registered renderers at a bounded rate. */
+	void UpdateM6VisualRenderers(float DeltaTime);
+	/* Queues one full M6 texture reconstruction for a renderer. */
+	void QueueFullM6VisualRebuild(UAEPathHeatmapRendererComponent& Renderer) const;
 	/* Rebuilds M3 once from all current raw Cell totals after a parameter-package switch. */
 	void RebuildM3FromCurrentRawGrid();
 	/* Accumulates raw Cells changed since the previous completed debug refresh. */
@@ -201,6 +226,8 @@ private:
 	FAEEnvironmentConstraintGrid ConstraintGrid;
 	/* Owns fused M5 ecological response state aligned with M1. */
 	FAEEcologicalResponseGrid ResponseGrid;
+	/* Owns complete M6 path visual state aligned with M1-M5. */
+	FAEPathHeatmapGrid PathHeatmapGrid;
 	/* Stores the atomically committed bundle identity and grouped M3/M4 parameter values. */
 	FAEActiveParameterSnapshot ActiveParameters;
 	/* Controls M3 updates independently from the valid M1 runtime pipeline. */
@@ -209,6 +236,10 @@ private:
 	bool bM4Enabled = false;
 	/* Controls World-level M5 response updates. */
 	bool bM5Enabled = false;
+	/* Controls World-level M6 state updates and registered visual outputs. */
+	bool bM6Enabled = false;
+	/* Stores the validated effective M6 parameter snapshot for this World. */
+	FAEM6ParameterSet M6Parameters;
 	/* Counts failed M4 World samples retained by fail-closed submission. */
 	uint64 M4InvalidSampleCount = 0;
 	/* Converts one real second into simulated hours for M3 integration. */
@@ -219,6 +250,8 @@ private:
 	double BehaviourTimeSeconds = 0.0;
 	/* Accumulates render time awaiting a debug refresh. */
 	double DebugAccumulator = 0.0;
+	/* Accumulates render time awaiting a bounded M6 texture refresh. */
+	double M6VisualAccumulator = 0.0;
 	/* Stores unique raw Cell indices changed since the previous debug refresh. */
 	TSet<int32> PendingDebugActiveCellIndices;
 	/* Stores one fixed behaviour step duration in seconds. */
@@ -241,6 +274,14 @@ private:
 	TArray<TWeakObjectPtr<UAEHeatmapRendererComponent>> PendingRendererAdds;
 	/* Stores renderers awaiting safe removal. */
 	TArray<TWeakObjectPtr<UAEHeatmapRendererComponent>> PendingRendererRemoves;
+	/* Stores active non-owning M6 renderer registrations. */
+	TArray<TWeakObjectPtr<UAEPathHeatmapRendererComponent>> RegisteredPathHeatmapRenderers;
+	/* Stores M6 renderers awaiting safe registration. */
+	TArray<TWeakObjectPtr<UAEPathHeatmapRendererComponent>> PendingPathHeatmapRendererAdds;
+	/* Stores M6 renderers awaiting safe removal. */
+	TArray<TWeakObjectPtr<UAEPathHeatmapRendererComponent>> PendingPathHeatmapRendererRemoves;
+	/* Coalesces latest fixed-step visual commands until the next visual refresh. */
+	TMap<int32, FAEPathHeatmapVisualCommand> PendingM6VisualCommands;
 	/* Stores active registered M4 moisture sources. */
 	TArray<TWeakObjectPtr<UAEMoistureSourceComponent>> RegisteredMoistureSources;
 	/* Stores M4 moisture sources awaiting safe registration. */

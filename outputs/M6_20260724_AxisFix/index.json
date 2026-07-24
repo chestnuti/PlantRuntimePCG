@@ -1,0 +1,89 @@
+﻿{
+	"devices": [
+		{
+			"deviceName": "WIN-AAST1JOLJ91",
+			"instance": "FBB3E4F647592DB68C5DDBB0D52F8A33",
+			"instanceName": "WIN-AAST1JOLJ91-42344",
+			"platform": "WindowsEditor",
+			"oSVersion": "Windows 11 (25H2) [10.0.26200.8875] ",
+			"model": "Default",
+			"gPU": "NVIDIA GeForce RTX 4080 SUPER",
+			"cPUModel": "Intel(R) Core(TM) i7-14700KF",
+			"rAMInGB": 32,
+			"renderMode": "SM6",
+			"rHI": "",
+			"appInstanceLog": ""
+		}
+	],
+	"reportCreatedOn": "2026.07.24-13.20.08",
+	"succeeded": 4,
+	"succeededWithWarnings": 0,
+	"failed": 0,
+	"notRun": 0,
+	"inProcess": 0,
+	"totalDuration": 0.036152098327875137,
+	"comparisonExported": false,
+	"comparisonExportDirectory": "",
+	"tests": [
+		{
+			"testDisplayName": "OrderingAndQuantization",
+			"fullTestPath": "AdaptiveEnv.M6.Command.OrderingAndQuantization",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"FBB3E4F647592DB68C5DDBB0D52F8A33"
+			],
+			"duration": 0.011845197528600693,
+			"dateTime": "2026.07.24-13.20.08",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "RevisionGate",
+			"fullTestPath": "AdaptiveEnv.M6.Grid.RevisionGate",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"FBB3E4F647592DB68C5DDBB0D52F8A33"
+			],
+			"duration": 0.0083274990320205688,
+			"dateTime": "2026.07.24-13.20.08",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "AsymmetricFade",
+			"fullTestPath": "AdaptiveEnv.M6.State.AsymmetricFade",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"FBB3E4F647592DB68C5DDBB0D52F8A33"
+			],
+			"duration": 0.0079050995409488678,
+			"dateTime": "2026.07.24-13.20.08",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "MappingAndFormation",
+			"fullTestPath": "AdaptiveEnv.M6.State.MappingAndFormation",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"FBB3E4F647592DB68C5DDBB0D52F8A33"
+			],
+			"duration": 0.0080743022263050079,
+			"dateTime": "2026.07.24-13.20.08",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		}
+	]
+}
