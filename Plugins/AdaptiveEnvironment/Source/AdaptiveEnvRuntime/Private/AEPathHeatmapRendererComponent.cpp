@@ -61,6 +61,7 @@ bool UAEPathHeatmapRendererComponent::InitializeVisualOutput(
 	}
 
 	// Allocate one texture texel per shared runtime Cell.
+	const FLinearColor NeutralVisualValue(128.0f / 255.0f, 128.0f / 255.0f, 0.0f, 0.0f);
 	TextureDimensions = GridDimensions;
 	PathHeatmapRenderTarget = NewObject<UTextureRenderTarget2D>(this);
 	if (!IsValid(PathHeatmapRenderTarget))
@@ -68,11 +69,11 @@ bool UAEPathHeatmapRendererComponent::InitializeVisualOutput(
 		return false;
 	}
 	PathHeatmapRenderTarget->RenderTargetFormat = ETextureRenderTargetFormat::RTF_RGBA8;
-	PathHeatmapRenderTarget->ClearColor = FLinearColor::Black;
+	PathHeatmapRenderTarget->ClearColor = NeutralVisualValue;
 	PathHeatmapRenderTarget->bAutoGenerateMips = false;
 	PathHeatmapRenderTarget->InitAutoFormat(TextureDimensions.X, TextureDimensions.Y);
 	PathHeatmapRenderTarget->UpdateResourceImmediate(true);
-	UKismetRenderingLibrary::ClearRenderTarget2D(this, PathHeatmapRenderTarget, FLinearColor::Black);
+	UKismetRenderingLibrary::ClearRenderTarget2D(this, PathHeatmapRenderTarget, NeutralVisualValue);
 
 	// Encode the stable World XY to texture UV transform.
 	const FVector2D WorldSize = GridWorldBounds.GetSize();
@@ -153,11 +154,15 @@ void UAEPathHeatmapRendererComponent::ApplyVisualBudget(
 		const FAEPathHeatmapVisualCommand& Command = PendingCommands[CommandIndex];
 		// Preserve the shared Grid XY orientation so material UVs need no hidden axis correction.
 		const int32 PixelY = Command.Coordinate.Y;
-		const float Intensity = static_cast<float>(Command.EncodedIntensity) / 255.0f;
+		const FLinearColor EncodedValue(
+			static_cast<float>(Command.EncodedValue.R) / 255.0f,
+			static_cast<float>(Command.EncodedValue.G) / 255.0f,
+			static_cast<float>(Command.EncodedValue.B) / 255.0f,
+			static_cast<float>(Command.EncodedValue.A) / 255.0f);
 		FCanvasTileItem Tile(
 			FVector2D(Command.Coordinate.X, PixelY),
 			FVector2D(1.0, 1.0),
-			FLinearColor(Intensity, 0.0f, 0.0f, 1.0f));
+			EncodedValue);
 		Tile.BlendMode = SE_BLEND_Opaque;
 		Canvas->Canvas->DrawItem(Tile);
 	}
@@ -176,10 +181,11 @@ void UAEPathHeatmapRendererComponent::ResetVisualOutput()
 	PendingCommandPositions.Reset();
 	if (IsValid(PathHeatmapRenderTarget))
 	{
+		const FLinearColor NeutralVisualValue(128.0f / 255.0f, 128.0f / 255.0f, 0.0f, 0.0f);
 		UKismetRenderingLibrary::ClearRenderTarget2D(
 			this,
 			PathHeatmapRenderTarget,
-			FLinearColor::Black);
+			NeutralVisualValue);
 	}
 	DisableMaterialOutput();
 }

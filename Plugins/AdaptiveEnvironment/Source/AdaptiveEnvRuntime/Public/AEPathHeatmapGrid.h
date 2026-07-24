@@ -12,10 +12,13 @@ public:
 	bool Initialize(const FAEHeatmapGridConfig& InConfig);
 	/* Clears Cell states, active transitions, revisions, and commands. */
 	void Reset();
-	/* Advances M6 state from committed M5 inputs in row-major order. */
+	/* Advances M6 state from committed M1 and M5 inputs in row-major order. */
 	bool Update(const TArray<FAEM6InputSnapshot>& Inputs, double DeltaSimulationHours, const FAEM6ParameterSet& Parameters);
-	/* Builds the stable union of changed M5 Cells and active M6 transitions. */
-	void BuildCandidateIndices(const TArray<int32>& M5ChangedIndices, TArray<int32>& OutIndices) const;
+	/* Builds the stable union of changed M1/M5 Cells and active M6 transitions. */
+	void BuildCandidateIndices(
+		const TArray<int32>& M1ChangedIndices,
+		const TArray<int32>& M5ChangedIndices,
+		TArray<int32>& OutIndices) const;
 	/* Reads one committed M6 Cell by integer coordinate. */
 	bool GetCellSnapshot(const FIntPoint& Coordinate, FAEPathHeatmapSnapshot& OutSnapshot) const;
 	/* Reads one committed M6 Cell by half-open world XY location. */
@@ -49,6 +52,8 @@ private:
 	static bool ValidateParameters(const FAEM6ParameterSet& Parameters);
 	/* Maps M5 Damage into a bounded M6 target intensity. */
 	static double CalculateTargetIntensity(double DamageRatio, const FAEM6ParameterSet& Parameters);
+	/* Encodes signed Flow XY and Path Intensity into the RGBA8 material contract. */
+	static FColor EncodeVisualValue(const FVector2D& FlowVector, double PathIntensity);
 
 	FAEHeatmapGridConfig Config;
 	FVector2D WorldMin = FVector2D::ZeroVector;
@@ -56,7 +61,7 @@ private:
 	TBitArray<> ActiveTransitionFlags;
 	TArray<int32> LastChangedCellIndices;
 	TArray<FAEPathHeatmapVisualCommand> VisualCommands;
-	TArray<uint8> LastEncodedIntensities;
+	TArray<FColor> LastEncodedValues;
 	uint64 PathVisualRevision = 0;
 	uint64 RejectedInputCount = 0;
 };

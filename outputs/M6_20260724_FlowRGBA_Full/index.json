@@ -1,0 +1,599 @@
+﻿{
+	"devices": [
+		{
+			"deviceName": "WIN-AAST1JOLJ91",
+			"instance": "A27B073F4A611B4A6A10059F4290E784",
+			"instanceName": "WIN-AAST1JOLJ91-44548",
+			"platform": "WindowsEditor",
+			"oSVersion": "Windows 11 (25H2) [10.0.26200.8875] ",
+			"model": "Default",
+			"gPU": "NVIDIA GeForce RTX 4080 SUPER",
+			"cPUModel": "Intel(R) Core(TM) i7-14700KF",
+			"rAMInGB": 32,
+			"renderMode": "SM6",
+			"rHI": "",
+			"appInstanceLog": ""
+		}
+	],
+	"reportCreatedOn": "2026.07.24-14.50.09",
+	"succeeded": 38,
+	"succeededWithWarnings": 0,
+	"failed": 0,
+	"notRun": 0,
+	"inProcess": 0,
+	"totalDuration": 0.48044830560684204,
+	"comparisonExported": false,
+	"comparisonExportDirectory": "",
+	"tests": [
+		{
+			"testDisplayName": "DataAssetSchema",
+			"fullTestPath": "AdaptiveEnv.M0.DataAssetSchema",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"A27B073F4A611B4A6A10059F4290E784"
+			],
+			"duration": 0.0077979005873203278,
+			"dateTime": "2026.07.24-14.50.08",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "GameplayTags",
+			"fullTestPath": "AdaptiveEnv.M0.GameplayTags",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"A27B073F4A611B4A6A10059F4290E784"
+			],
+			"duration": 0.0077033005654811859,
+			"dateTime": "2026.07.24-14.50.08",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "SettingsDefaults",
+			"fullTestPath": "AdaptiveEnv.M0.SettingsDefaults",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"A27B073F4A611B4A6A10059F4290E784"
+			],
+			"duration": 0.0082414001226425171,
+			"dateTime": "2026.07.24-14.50.08",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "WorldSubsystemSingleton",
+			"fullTestPath": "AdaptiveEnv.M0.WorldSubsystemSingleton",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"A27B073F4A611B4A6A10059F4290E784"
+			],
+			"duration": 0.040046099573373795,
+			"dateTime": "2026.07.24-14.50.08",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "ActiveWindow",
+			"fullTestPath": "AdaptiveEnv.M1.DebugRenderer.ActiveWindow",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"A27B073F4A611B4A6A10059F4290E784"
+			],
+			"duration": 0.035949200391769409,
+			"dateTime": "2026.07.24-14.50.08",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "BehaviourAggregation",
+			"fullTestPath": "AdaptiveEnv.M1.BehaviourAggregation",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"A27B073F4A611B4A6A10059F4290E784"
+			],
+			"duration": 0.0056946016848087311,
+			"dateTime": "2026.07.24-14.50.08",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "FixedStepScheduler",
+			"fullTestPath": "AdaptiveEnv.M1.FixedStepScheduler",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"A27B073F4A611B4A6A10059F4290E784"
+			],
+			"duration": 0.039651401340961456,
+			"dateTime": "2026.07.24-14.50.09",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "GridMapping",
+			"fullTestPath": "AdaptiveEnv.M1.GridMapping",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"A27B073F4A611B4A6A10059F4290E784"
+			],
+			"duration": 0.0077903009951114655,
+			"dateTime": "2026.07.24-14.50.09",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "TrackerSample",
+			"fullTestPath": "AdaptiveEnv.M1.TrackerSample",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"A27B073F4A611B4A6A10059F4290E784"
+			],
+			"duration": 0.035732999444007874,
+			"dateTime": "2026.07.24-14.50.09",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "DuplicateAndUnits",
+			"fullTestPath": "AdaptiveEnv.M2.Bundle.DuplicateAndUnits",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"A27B073F4A611B4A6A10059F4290E784"
+			],
+			"duration": 0.0049261003732681274,
+			"dateTime": "2026.07.24-14.50.09",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "HeaderExact",
+			"fullTestPath": "AdaptiveEnv.M2.Bundle.HeaderExact",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"A27B073F4A611B4A6A10059F4290E784"
+			],
+			"duration": 0.0082661993801593781,
+			"dateTime": "2026.07.24-14.50.09",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "InvalidSchemaAndHash",
+			"fullTestPath": "AdaptiveEnv.M2.Bundle.InvalidSchemaAndHash",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"A27B073F4A611B4A6A10059F4290E784"
+			],
+			"duration": 0.0083587989211082458,
+			"dateTime": "2026.07.24-14.50.09",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "Valid",
+			"fullTestPath": "AdaptiveEnv.M2.Bundle.Valid",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"A27B073F4A611B4A6A10059F4290E784"
+			],
+			"duration": 0.0081535018980503082,
+			"dateTime": "2026.07.24-14.50.09",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "FailedReimportAtomic",
+			"fullTestPath": "AdaptiveEnv.M2.Import.FailedReimportAtomic",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"A27B073F4A611B4A6A10059F4290E784"
+			],
+			"duration": 0.008715897798538208,
+			"dateTime": "2026.07.24-14.50.09",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "GoldenBundle",
+			"fullTestPath": "AdaptiveEnv.M2.Import.GoldenBundle",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"A27B073F4A611B4A6A10059F4290E784"
+			],
+			"duration": 0.0082728005945682526,
+			"dateTime": "2026.07.24-14.50.09",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "RangeQuery",
+			"fullTestPath": "AdaptiveEnv.M3.DebugRenderer.RangeQuery",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"A27B073F4A611B4A6A10059F4290E784"
+			],
+			"duration": 0.0082133002579212189,
+			"dateTime": "2026.07.24-14.50.09",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "CumulativeDeltaConsumedOnce",
+			"fullTestPath": "AdaptiveEnv.M3.Exposure.CumulativeDeltaConsumedOnce",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"A27B073F4A611B4A6A10059F4290E784"
+			],
+			"duration": 0.0081066004931926727,
+			"dateTime": "2026.07.24-14.50.09",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "HalfLifeSimulationTime",
+			"fullTestPath": "AdaptiveEnv.M3.Exposure.HalfLifeSimulationTime",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"A27B073F4A611B4A6A10059F4290E784"
+			],
+			"duration": 0.0086774006485939026,
+			"dateTime": "2026.07.24-14.50.09",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "SixComponents",
+			"fullTestPath": "AdaptiveEnv.M3.Exposure.SixComponents",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"A27B073F4A611B4A6A10059F4290E784"
+			],
+			"duration": 0.0082488022744655609,
+			"dateTime": "2026.07.24-14.50.09",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "SprintTravelNoDoubleCount",
+			"fullTestPath": "AdaptiveEnv.M3.Exposure.SprintTravelNoDoubleCount",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"A27B073F4A611B4A6A10059F4290E784"
+			],
+			"duration": 0.0079998001456260681,
+			"dateTime": "2026.07.24-14.50.09",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "BundleSwitch",
+			"fullTestPath": "AdaptiveEnv.M3.Integration.BundleSwitch",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"A27B073F4A611B4A6A10059F4290E784"
+			],
+			"duration": 0.064468294382095337,
+			"dateTime": "2026.07.24-14.50.09",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "ResetAndRevision",
+			"fullTestPath": "AdaptiveEnv.M3.Integration.ResetAndRevision",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"A27B073F4A611B4A6A10059F4290E784"
+			],
+			"duration": 0.0081564001739025116,
+			"dateTime": "2026.07.24-14.50.09",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "Dynamics",
+			"fullTestPath": "AdaptiveEnv.M3.Parameters.Dynamics",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"A27B073F4A611B4A6A10059F4290E784"
+			],
+			"duration": 0.0084540024399757385,
+			"dateTime": "2026.07.24-14.50.09",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "RequiredAndUnits",
+			"fullTestPath": "AdaptiveEnv.M3.Parameters.RequiredAndUnits",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"A27B073F4A611B4A6A10059F4290E784"
+			],
+			"duration": 0.0083026029169559479,
+			"dateTime": "2026.07.24-14.50.09",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "WeightContract",
+			"fullTestPath": "AdaptiveEnv.M3.Parameters.WeightContract",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"A27B073F4A611B4A6A10059F4290E784"
+			],
+			"duration": 0.0081788003444671631,
+			"dateTime": "2026.07.24-14.50.09",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "CommitRevisionAndFailClosed",
+			"fullTestPath": "AdaptiveEnv.M4.Grid.CommitRevisionAndFailClosed",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"A27B073F4A611B4A6A10059F4290E784"
+			],
+			"duration": 0.0081987008452415466,
+			"dateTime": "2026.07.24-14.50.09",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "ConstraintAndState",
+			"fullTestPath": "AdaptiveEnv.M4.Parameters.ConstraintAndState",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"A27B073F4A611B4A6A10059F4290E784"
+			],
+			"duration": 0.0082421004772186279,
+			"dateTime": "2026.07.24-14.50.09",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "IndependentEnvironmentPressure",
+			"fullTestPath": "AdaptiveEnv.M4.State.IndependentEnvironmentPressure",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"A27B073F4A611B4A6A10059F4290E784"
+			],
+			"duration": 0.0082621015608310699,
+			"dateTime": "2026.07.24-14.50.09",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "SharedHysteresisAndDebounce",
+			"fullTestPath": "AdaptiveEnv.M4.State.SharedHysteresisAndDebounce",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"A27B073F4A611B4A6A10059F4290E784"
+			],
+			"duration": 0.008226100355386734,
+			"dateTime": "2026.07.24-14.50.09",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "VersionGateAndRevision",
+			"fullTestPath": "AdaptiveEnv.M5.Grid.VersionGateAndRevision",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"A27B073F4A611B4A6A10059F4290E784"
+			],
+			"duration": 0.0081789009273052216,
+			"dateTime": "2026.07.24-14.50.09",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "DamageOnly",
+			"fullTestPath": "AdaptiveEnv.M5.Response.DamageOnly",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"A27B073F4A611B4A6A10059F4290E784"
+			],
+			"duration": 0.0082208998501300812,
+			"dateTime": "2026.07.24-14.50.09",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "DelayedRecoveryOnly",
+			"fullTestPath": "AdaptiveEnv.M5.Response.DelayedRecoveryOnly",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"A27B073F4A611B4A6A10059F4290E784"
+			],
+			"duration": 0.0082254000008106232,
+			"dateTime": "2026.07.24-14.50.09",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "EnvironmentDifferentiation",
+			"fullTestPath": "AdaptiveEnv.M5.Response.EnvironmentDifferentiation",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"A27B073F4A611B4A6A10059F4290E784"
+			],
+			"duration": 0.008065398782491684,
+			"dateTime": "2026.07.24-14.50.09",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "FlowEncoding",
+			"fullTestPath": "AdaptiveEnv.M6.Command.FlowEncoding",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"A27B073F4A611B4A6A10059F4290E784"
+			],
+			"duration": 0.007935401052236557,
+			"dateTime": "2026.07.24-14.50.09",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "OrderingAndQuantization",
+			"fullTestPath": "AdaptiveEnv.M6.Command.OrderingAndQuantization",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"A27B073F4A611B4A6A10059F4290E784"
+			],
+			"duration": 0.0082591995596885681,
+			"dateTime": "2026.07.24-14.50.09",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "RevisionGate",
+			"fullTestPath": "AdaptiveEnv.M6.Grid.RevisionGate",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"A27B073F4A611B4A6A10059F4290E784"
+			],
+			"duration": 0.0081395991146564484,
+			"dateTime": "2026.07.24-14.50.09",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "AsymmetricFade",
+			"fullTestPath": "AdaptiveEnv.M6.State.AsymmetricFade",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"A27B073F4A611B4A6A10059F4290E784"
+			],
+			"duration": 0.0081917010247707367,
+			"dateTime": "2026.07.24-14.50.09",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "MappingAndFormation",
+			"fullTestPath": "AdaptiveEnv.M6.State.MappingAndFormation",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"A27B073F4A611B4A6A10059F4290E784"
+			],
+			"duration": 0.0081962980329990387,
+			"dateTime": "2026.07.24-14.50.09",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		}
+	]
+}

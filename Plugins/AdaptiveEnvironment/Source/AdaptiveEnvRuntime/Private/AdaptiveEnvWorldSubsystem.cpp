@@ -876,6 +876,7 @@ void UAEAdaptiveEnvWorldSubsystem::UpdateM6(const float StepSeconds)
 	// Merge new M5 responses with Cells still completing an M6 visual transition.
 	TArray<int32> CandidateIndices;
 	PathHeatmapGrid.BuildCandidateIndices(
+		BehaviourGrid.GetDirtyCellIndices(),
 		ResponseGrid.GetLastChangedCellIndices(),
 		CandidateIndices);
 	TArray<FAEM6InputSnapshot> Inputs;
@@ -883,7 +884,7 @@ void UAEAdaptiveEnvWorldSubsystem::UpdateM6(const float StepSeconds)
 	const FIntPoint Dimensions = BehaviourGrid.GetConfig().Dimensions;
 	const uint64 CurrentStep = static_cast<uint64>(ProcessedBehaviourStepCount + 1);
 
-	// Freeze only committed M5 snapshots from valid shared Grid coordinates.
+	// Freeze committed M1 Flow and M5 response snapshots from valid shared Grid coordinates.
 	for (const int32 Index : CandidateIndices)
 	{
 		if (Index < 0 || Index >= Dimensions.X * Dimensions.Y)
@@ -891,6 +892,8 @@ void UAEAdaptiveEnvWorldSubsystem::UpdateM6(const float StepSeconds)
 			continue;
 		}
 		const FIntPoint Coordinate(Index % Dimensions.X, Index / Dimensions.X);
+		FAEBehaviourCellSnapshot M1;
+		BehaviourGrid.GetCellSnapshot(Coordinate, M1);
 		FAEEcologicalResponseSnapshot M5;
 		if (!ResponseGrid.GetCellSnapshot(Coordinate, M5))
 		{
@@ -898,6 +901,9 @@ void UAEAdaptiveEnvWorldSubsystem::UpdateM6(const float StepSeconds)
 		}
 		FAEM6InputSnapshot& Input = Inputs.AddDefaulted_GetRef();
 		Input.Coordinate = Coordinate;
+		Input.FlowDirection = M1.FlowDirection;
+		Input.FlowMagnitude = FMath::Clamp(static_cast<double>(M1.FlowMagnitude), 0.0, 1.0);
+		Input.SourceBehaviourRevision = BehaviourGrid.GetBehaviourRevision();
 		Input.DamageRatio = M5.DamageRatio;
 		Input.SourceResponseRevision = static_cast<uint64>(
 			FMath::Max(M5.ResponseRevision, static_cast<int64>(0)));

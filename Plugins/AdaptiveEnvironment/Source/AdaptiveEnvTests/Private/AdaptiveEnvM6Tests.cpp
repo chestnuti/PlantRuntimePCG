@@ -35,6 +35,7 @@ namespace AdaptiveEnvM6Tests
 	{
 		FAEM6InputSnapshot Input;
 		Input.Coordinate = FIntPoint::ZeroValue;
+		Input.SourceBehaviourRevision = ResponseRevision;
 		Input.DamageRatio = DamageRatio;
 		Input.SourceResponseRevision = ResponseRevision;
 		Input.SourceResponseSimulationStep = ResponseRevision;
@@ -114,7 +115,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	"AdaptiveEnv.M6.Command.OrderingAndQuantization",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
-/* Verifies unsorted inputs emit stable row-major commands with bounded R8 values. */
+/* Verifies unsorted inputs emit stable row-major commands with bounded RGBA8 values. */
 bool FAEM6OrderingAndQuantizationTest::RunTest(const FString& Parameters)
 {
 	FAEHeatmapGridConfig Config;
@@ -133,8 +134,44 @@ bool FAEM6OrderingAndQuantizationTest::RunTest(const FString& Parameters)
 	{
 		TestEqual(TEXT("Commands are row-major"), Commands[0].CellIndex, 0);
 		TestEqual(TEXT("Second command retains final index"), Commands[1].CellIndex, 3);
-		TestEqual(TEXT("Full intensity quantizes to 255"), Commands[0].EncodedIntensity, static_cast<uint8>(255));
+		TestEqual(TEXT("Zero Flow X uses the neutral code"), Commands[0].EncodedValue.R, static_cast<uint8>(128));
+		TestEqual(TEXT("Zero Flow Y uses the neutral code"), Commands[0].EncodedValue.G, static_cast<uint8>(128));
+		TestEqual(TEXT("Reserved channel remains zero"), Commands[0].EncodedValue.B, static_cast<uint8>(0));
+		TestEqual(TEXT("Full path intensity quantizes to alpha 255"), Commands[0].EncodedValue.A, static_cast<uint8>(255));
 	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FAEM6FlowEncodingTest,
+	"AdaptiveEnv.M6.Command.FlowEncoding",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+/* Verifies M1 direction and consistency produce the documented signed RG encoding. */
+bool FAEM6FlowEncodingTest::RunTest(const FString& Parameters)
+{
+	FAEPathHeatmapGrid Grid;
+	TestTrue(TEXT("M6 Grid initializes"), AdaptiveEnvM6Tests::InitializeSingleCellGrid(Grid));
+	FAEM6InputSnapshot Input = AdaptiveEnvM6Tests::MakeInput(0.6, 1, 1);
+	Input.FlowDirection = FVector2D(1.0, 0.0);
+	Input.FlowMagnitude = 0.5;
+	TestTrue(TEXT("Flow update succeeds"), Grid.Update(
+		{Input},
+		4.0,
+		AdaptiveEnvM6Tests::MakeParameters()));
+
+	const TArray<FAEPathHeatmapVisualCommand>& Commands = Grid.GetVisualCommands();
+	TestEqual(TEXT("One Flow command is emitted"), Commands.Num(), 1);
+	if (Commands.Num() == 1)
+	{
+		TestEqual(TEXT("Positive half-strength X encodes to 191"), Commands[0].EncodedValue.R, static_cast<uint8>(191));
+		TestEqual(TEXT("Zero Y retains the neutral code"), Commands[0].EncodedValue.G, static_cast<uint8>(128));
+		TestEqual(TEXT("Path intensity remains in alpha"), Commands[0].EncodedValue.A, static_cast<uint8>(255));
+	}
+
+	FAEPathHeatmapSnapshot Snapshot;
+	TestTrue(TEXT("Flow Cell is queryable"), Grid.GetCellSnapshot(FIntPoint::ZeroValue, Snapshot));
+	TestTrue(TEXT("Snapshot retains weighted Flow"), Snapshot.FlowVector.Equals(FVector2D(0.5, 0.0), 1.0e-6));
 	return true;
 }
 

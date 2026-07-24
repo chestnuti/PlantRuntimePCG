@@ -1,0 +1,104 @@
+﻿{
+	"devices": [
+		{
+			"deviceName": "WIN-AAST1JOLJ91",
+			"instance": "7ACACC46492E8AE2BB607FAA544E12B0",
+			"instanceName": "WIN-AAST1JOLJ91-23932",
+			"platform": "WindowsEditor",
+			"oSVersion": "Windows 11 (25H2) [10.0.26200.8875] ",
+			"model": "Default",
+			"gPU": "NVIDIA GeForce RTX 4080 SUPER",
+			"cPUModel": "Intel(R) Core(TM) i7-14700KF",
+			"rAMInGB": 32,
+			"renderMode": "SM6",
+			"rHI": "",
+			"appInstanceLog": ""
+		}
+	],
+	"reportCreatedOn": "2026.07.24-14.46.34",
+	"succeeded": 5,
+	"succeededWithWarnings": 0,
+	"failed": 0,
+	"notRun": 0,
+	"inProcess": 0,
+	"totalDuration": 0.041016697883605957,
+	"comparisonExported": false,
+	"comparisonExportDirectory": "",
+	"tests": [
+		{
+			"testDisplayName": "FlowEncoding",
+			"fullTestPath": "AdaptiveEnv.M6.Command.FlowEncoding",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"7ACACC46492E8AE2BB607FAA544E12B0"
+			],
+			"duration": 0.0078935995697975159,
+			"dateTime": "2026.07.24-14.46.34",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "OrderingAndQuantization",
+			"fullTestPath": "AdaptiveEnv.M6.Command.OrderingAndQuantization",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"7ACACC46492E8AE2BB607FAA544E12B0"
+			],
+			"duration": 0.0086911991238594055,
+			"dateTime": "2026.07.24-14.46.34",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "RevisionGate",
+			"fullTestPath": "AdaptiveEnv.M6.Grid.RevisionGate",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"7ACACC46492E8AE2BB607FAA544E12B0"
+			],
+			"duration": 0.0082615017890930176,
+			"dateTime": "2026.07.24-14.46.34",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "AsymmetricFade",
+			"fullTestPath": "AdaptiveEnv.M6.State.AsymmetricFade",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"7ACACC46492E8AE2BB607FAA544E12B0"
+			],
+			"duration": 0.0080582983791828156,
+			"dateTime": "2026.07.24-14.46.34",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "MappingAndFormation",
+			"fullTestPath": "AdaptiveEnv.M6.State.MappingAndFormation",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"7ACACC46492E8AE2BB607FAA544E12B0"
+			],
+			"duration": 0.0081120990216732025,
+			"dateTime": "2026.07.24-14.46.34",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		}
+	]
+}

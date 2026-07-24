@@ -17,7 +17,7 @@ bool FAEPathHeatmapGrid::Initialize(const FAEHeatmapGridConfig& InConfig)
 		Config.Dimensions.Y * Config.CellSizeCm * 0.5);
 	Cells.SetNum(static_cast<int32>(CellCount));
 	ActiveTransitionFlags.Init(false, Cells.Num());
-	LastEncodedIntensities.SetNumZeroed(Cells.Num());
+	LastEncodedValues.Init(FColor(128, 128, 0, 0), Cells.Num());
 	Reset();
 	return true;
 }
@@ -30,7 +30,7 @@ void FAEPathHeatmapGrid::Reset()
 		Cell = FCell();
 	}
 	ActiveTransitionFlags.Init(false, Cells.Num());
-	LastEncodedIntensities.Init(0, Cells.Num());
+	LastEncodedValues.Init(FColor(128, 128, 0, 0), Cells.Num());
 	LastChangedCellIndices.Reset();
 	VisualCommands.Reset();
 	PathVisualRevision = 0;
@@ -67,6 +67,10 @@ bool FAEPathHeatmapGrid::Update(
 	{
 		int32 Index = INDEX_NONE;
 		if (!CellToIndex(Input.Coordinate, Index)
+			|| !FMath::IsFinite(Input.FlowDirection.X)
+			|| !FMath::IsFinite(Input.FlowDirection.Y)
+			|| !FMath::IsFinite(Input.FlowMagnitude)
+			|| Input.FlowMagnitude < 0.0 || Input.FlowMagnitude > 1.0
 			|| !FMath::IsFinite(Input.DamageRatio)
 			|| Input.DamageRatio < 0.0 || Input.DamageRatio > 1.0)
 		{
@@ -76,7 +80,8 @@ bool FAEPathHeatmapGrid::Update(
 
 		FCell& Cell = Cells[Index];
 		if (Cell.bInitialized
-			&& (Input.SourceResponseRevision < Cell.State.SourceResponseRevision
+			&& (Input.SourceBehaviourRevision < Cell.State.SourceBehaviourRevision
+				|| Input.SourceResponseRevision < Cell.State.SourceResponseRevision
 				|| Input.CurrentSimulationStep <= Cell.State.SimulationStep))
 		{
 			++RejectedInputCount;
@@ -86,6 +91,7 @@ bool FAEPathHeatmapGrid::Update(
 		// Derive the new target and advance the independent visual transition.
 		const FAEPathHeatmapCellState Previous = Cell.State;
 		FAEPathHeatmapCellState Next = Previous;
+		Next.FlowVector = (Input.FlowDirection.GetSafeNormal() * Input.FlowMagnitude).ClampAxes(-1.0, 1.0);
 		Next.TargetPathIntensity = CalculateTargetIntensity(Input.DamageRatio, Parameters);
 		const double Rate = Next.TargetPathIntensity >= Previous.PathIntensity
 			? Parameters.FormationRatePerSimulationHour
@@ -99,11 +105,14 @@ bool FAEPathHeatmapGrid::Update(
 			0.0,
 			1.0);
 		Next.SourceResponseRevision = Input.SourceResponseRevision;
+		Next.SourceBehaviourRevision = Input.SourceBehaviourRevision;
 		Next.SimulationStep = Input.CurrentSimulationStep;
 
 		const bool bChanged = !Cell.bInitialized
+			|| !Previous.FlowVector.Equals(Next.FlowVector, 1.0 / 255.0)
 			|| !FMath::IsNearlyEqual(Previous.PathIntensity, Next.PathIntensity, Parameters.DirtyIntensityEpsilon)
 			|| !FMath::IsNearlyEqual(Previous.TargetPathIntensity, Next.TargetPathIntensity, Parameters.DirtyIntensityEpsilon)
+			|| Previous.SourceBehaviourRevision != Next.SourceBehaviourRevision
 			|| Previous.SourceResponseRevision != Next.SourceResponseRevision;
 		Cell.State = Next;
 		Cell.bInitialized = true;
@@ -125,17 +134,16 @@ bool FAEPathHeatmapGrid::Update(
 		{
 			FCell& Cell = Cells[Index];
 			Cell.State.PathVisualRevision = PathVisualRevision;
-			const uint8 EncodedIntensity = static_cast<uint8>(FMath::Clamp(
-				FMath::RoundToInt(Cell.State.PathIntensity * 255.0),
-				0,
-				255));
-			if (LastEncodedIntensities[Index] != EncodedIntensity)
+			const FColor EncodedValue = EncodeVisualValue(
+				Cell.State.FlowVector,
+				Cell.State.PathIntensity);
+			if (LastEncodedValues[Index] != EncodedValue)
 			{
-				LastEncodedIntensities[Index] = EncodedIntensity;
+				LastEncodedValues[Index] = EncodedValue;
 				VisualCommands.Add({
 					Index,
 					FIntPoint(Index % Config.Dimensions.X, Index / Config.Dimensions.X),
-					EncodedIntensity,
+					EncodedValue,
 					PathVisualRevision});
 			}
 		}
@@ -145,10 +153,18 @@ bool FAEPathHeatmapGrid::Update(
 
 /* Merge M5 changes with Cells whose M6 transition must continue. */
 void FAEPathHeatmapGrid::BuildCandidateIndices(
+	const TArray<int32>& M1ChangedIndices,
 	const TArray<int32>& M5ChangedIndices,
 	TArray<int32>& OutIndices) const
 {
 	TBitArray<> Flags = ActiveTransitionFlags;
+	for (const int32 Index : M1ChangedIndices)
+	{
+		if (Flags.IsValidIndex(Index))
+		{
+			Flags[Index] = true;
+		}
+	}
 	for (const int32 Index : M5ChangedIndices)
 	{
 		if (Flags.IsValidIndex(Index))
@@ -176,8 +192,10 @@ bool FAEPathHeatmapGrid::GetCellSnapshot(
 	const FAEPathHeatmapCellState& State = Cells[Index].State;
 	OutSnapshot.Coordinate = Coordinate;
 	OutSnapshot.WorldCenter = GetCellWorldCenter(Coordinate);
+	OutSnapshot.FlowVector = State.FlowVector;
 	OutSnapshot.PathIntensity = static_cast<float>(State.PathIntensity);
 	OutSnapshot.TargetPathIntensity = static_cast<float>(State.TargetPathIntensity);
+	OutSnapshot.SourceBehaviourRevision = static_cast<int64>(State.SourceBehaviourRevision);
 	OutSnapshot.SourceResponseRevision = static_cast<int64>(State.SourceResponseRevision);
 	OutSnapshot.PathVisualRevision = static_cast<int64>(State.PathVisualRevision);
 	OutSnapshot.SimulationStep = static_cast<int64>(State.SimulationStep);
@@ -202,14 +220,14 @@ void FAEPathHeatmapGrid::BuildFullVisualCommands(
 	OutCommands.Reserve(Cells.Num());
 	for (int32 Index = 0; Index < Cells.Num(); ++Index)
 	{
-		if (!Cells[Index].bInitialized && LastEncodedIntensities[Index] == 0)
+		if (!Cells[Index].bInitialized)
 		{
 			continue;
 		}
 		OutCommands.Add({
 			Index,
 			FIntPoint(Index % Config.Dimensions.X, Index / Config.Dimensions.X),
-			LastEncodedIntensities[Index],
+			LastEncodedValues[Index],
 			PathVisualRevision});
 	}
 }
@@ -295,4 +313,18 @@ double FAEPathHeatmapGrid::CalculateTargetIntensity(
 		(DamageRatio - Parameters.VisibleDamageThresholdRatio) / Range,
 		0.0,
 		1.0);
+}
+
+/* Encode one complete material-facing Cell value into RGBA8. */
+FColor FAEPathHeatmapGrid::EncodeVisualValue(
+	const FVector2D& FlowVector,
+	const double PathIntensity)
+{
+	// Map signed Flow components to unsigned texture channels and retain path intensity in alpha.
+	const FVector2D BoundedFlow = FlowVector.ClampAxes(-1.0, 1.0);
+	return FColor(
+		static_cast<uint8>(FMath::Clamp(FMath::RoundToInt((BoundedFlow.X * 0.5 + 0.5) * 255.0), 0, 255)),
+		static_cast<uint8>(FMath::Clamp(FMath::RoundToInt((BoundedFlow.Y * 0.5 + 0.5) * 255.0), 0, 255)),
+		0,
+		static_cast<uint8>(FMath::Clamp(FMath::RoundToInt(PathIntensity * 255.0), 0, 255)));
 }
