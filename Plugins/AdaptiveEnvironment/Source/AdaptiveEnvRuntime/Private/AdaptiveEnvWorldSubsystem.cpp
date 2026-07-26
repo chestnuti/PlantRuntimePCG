@@ -3,6 +3,7 @@
 #include "AEBehaviourTrackerComponent.h"
 #include "AEHeatmapRendererComponent.h"
 #include "AEPathHeatmapRendererComponent.h"
+#include "AEVegetationPatchComponent.h"
 #include "AEMoistureSourceComponent.h"
 #include "AEWorldConstraintProvider.h"
 #include "AEParameterBundleService.h"
@@ -56,6 +57,11 @@ void UAEAdaptiveEnvWorldSubsystem::Initialize(FSubsystemCollectionBase& Collecti
 		bRuntimeEnabled = false;
 		UE_LOG(LogAdaptiveEnv, Error, TEXT("M6 grid initialization failed."));
 	}
+	if (!VegetationPatchService.Initialize(GridConfig.Dimensions.X * GridConfig.Dimensions.Y))
+	{
+		bRuntimeEnabled = false;
+		UE_LOG(LogAdaptiveEnv, Error, TEXT("M7 Patch service initialization failed."));
+	}
 
 	// Freeze user-configurable M6 values into one validated World parameter snapshot.
 	M6Parameters.VisibleDamageThresholdRatio = Settings->M6VisibleDamageThresholdRatio;
@@ -69,6 +75,7 @@ void UAEAdaptiveEnvWorldSubsystem::Initialize(FSubsystemCollectionBase& Collecti
 	bM4Enabled = false;
 	bM5Enabled = false;
 	bM6Enabled = false;
+	bM7Enabled = false;
 	if (bRuntimeEnabled && (Settings->bEnableM3 || Settings->bEnableM4 || Settings->bEnableM5))
 	{
 		UAEPublishedParameterBundleAsset* Bundle = Settings->ParameterBundle.LoadSynchronous();
@@ -85,6 +92,7 @@ void UAEAdaptiveEnvWorldSubsystem::Initialize(FSubsystemCollectionBase& Collecti
 				bM4Enabled = Settings->bEnableM4;
 				bM5Enabled = Settings->bEnableM5;
 				bM6Enabled = Settings->bEnableM6 && bM5Enabled;
+				bM7Enabled = Settings->bEnableM7 && bM5Enabled;
 			}
 		}
 		else
@@ -132,6 +140,17 @@ void UAEAdaptiveEnvWorldSubsystem::Deinitialize()
 	PendingPathHeatmapRendererAdds.Reset();
 	PendingPathHeatmapRendererRemoves.Reset();
 	PendingM6VisualCommands.Reset();
+	for (const TWeakObjectPtr<UAEVegetationPatchComponent>& Patch : RegisteredVegetationPatches)
+	{
+		if (Patch.IsValid())
+		{
+			Patch->ResetVisualOutput();
+		}
+	}
+	RegisteredVegetationPatches.Reset();
+	PendingVegetationPatchAdds.Reset();
+	PendingVegetationPatchRemoves.Reset();
+	PendingM7VisualCommands.Reset();
 	RegisteredMoistureSources.Reset();
 	PendingMoistureSourceAdds.Reset();
 	PendingMoistureSourceRemoves.Reset();
@@ -145,10 +164,12 @@ void UAEAdaptiveEnvWorldSubsystem::Deinitialize()
 	ConstraintGrid.Reset();
 	ResponseGrid.Reset();
 	PathHeatmapGrid.Reset();
+	VegetationPatchService.Reset();
 	bM3Enabled = false;
 	bM4Enabled = false;
 	bM5Enabled = false;
 	bM6Enabled = false;
+	bM7Enabled = false;
 	Super::Deinitialize();
 }
 
@@ -184,13 +205,14 @@ void UAEAdaptiveEnvWorldSubsystem::Tick(float DeltaTime)
 		UpdateM3(BehaviourStepSeconds);
 		UpdateM4(BehaviourStepSeconds);
 		UpdateM5(BehaviourStepSeconds);
-		UpdateM6(BehaviourStepSeconds);
+		UpdateM6AndM7(BehaviourStepSeconds);
 		AccumulateDebugActiveCells();
 		++ProcessedBehaviourStepCount;
 	}
 
 	// Apply final visual state after all fixed substeps, then draw debug output.
 	UpdateM6VisualRenderers(DeltaTime);
+	UpdateM7VisualAdapters(DeltaTime);
 	UpdateDebugRenderers(DeltaTime);
 	BehaviourGrid.ClearDirtyCells();
 }
@@ -328,6 +350,26 @@ void UAEAdaptiveEnvWorldSubsystem::UnregisterPathHeatmapRenderer(
 	}
 }
 
+/* Defer M7 Patch registration until the next safe pipeline boundary. */
+void UAEAdaptiveEnvWorldSubsystem::RegisterVegetationPatch(
+	UAEVegetationPatchComponent* Patch)
+{
+	if (IsValid(Patch))
+	{
+		PendingVegetationPatchAdds.AddUnique(Patch);
+	}
+}
+
+/* Defer M7 Patch removal until the next safe pipeline boundary. */
+void UAEAdaptiveEnvWorldSubsystem::UnregisterVegetationPatch(
+	UAEVegetationPatchComponent* Patch)
+{
+	if (Patch != nullptr)
+	{
+		PendingVegetationPatchRemoves.AddUnique(Patch);
+	}
+}
+
 // Forward a world-position cell query to the owned behaviour grid.
 bool UAEAdaptiveEnvWorldSubsystem::GetBehaviourCellAtWorldLocation(const FVector& Location, FAEBehaviourCellSnapshot& OutSnapshot) const
 {
@@ -379,8 +421,11 @@ void UAEAdaptiveEnvWorldSubsystem::ResetBehaviourGrid()
 	ConstraintGrid.Reset();
 	ResponseGrid.Reset();
 	PathHeatmapGrid.Reset();
+	VegetationPatchService.Reset();
 	PendingM6VisualCommands.Reset();
+	PendingM7VisualCommands.Reset();
 	M6VisualAccumulator = 0.0;
+	M7VisualAccumulator = 0.0;
 	for (const TWeakObjectPtr<UAEPathHeatmapRendererComponent>& Renderer : RegisteredPathHeatmapRenderers)
 	{
 		if (Renderer.IsValid())
@@ -390,6 +435,14 @@ void UAEAdaptiveEnvWorldSubsystem::ResetBehaviourGrid()
 			{
 				Renderer->InitializeVisualOutput(GetGridDimensions(), GetGridWorldBounds());
 			}
+		}
+	}
+	for (const TWeakObjectPtr<UAEVegetationPatchComponent>& Patch : RegisteredVegetationPatches)
+	{
+		if (Patch.IsValid())
+		{
+			Patch->ResetVisualOutput();
+			PendingVegetationPatchAdds.AddUnique(Patch);
 		}
 	}
 	M4InvalidSampleCount = 0;
@@ -463,11 +516,14 @@ bool UAEAdaptiveEnvWorldSubsystem::ApplyParameterBundle(UAEPublishedParameterBun
 	bM4Enabled = true;
 	bM5Enabled = true;
 	bM6Enabled = GetDefault<UAdaptiveEnvSettings>()->bEnableM6;
+	bM7Enabled = GetDefault<UAdaptiveEnvSettings>()->bEnableM7;
 	RebuildM3FromCurrentRawGrid();
 	ConstraintGrid.Reset();
 	ResponseGrid.Reset();
 	PathHeatmapGrid.Reset();
+	VegetationPatchService.Reset();
 	PendingM6VisualCommands.Reset();
+	PendingM7VisualCommands.Reset();
 	for (const TWeakObjectPtr<UAEPathHeatmapRendererComponent>& Renderer : RegisteredPathHeatmapRenderers)
 	{
 		if (Renderer.IsValid())
@@ -477,6 +533,14 @@ bool UAEAdaptiveEnvWorldSubsystem::ApplyParameterBundle(UAEPublishedParameterBun
 			{
 				Renderer->InitializeVisualOutput(GetGridDimensions(), GetGridWorldBounds());
 			}
+		}
+	}
+	for (const TWeakObjectPtr<UAEVegetationPatchComponent>& Patch : RegisteredVegetationPatches)
+	{
+		if (Patch.IsValid())
+		{
+			Patch->ResetVisualOutput();
+			PendingVegetationPatchAdds.AddUnique(Patch);
 		}
 	}
 	UE_LOG(
@@ -542,6 +606,15 @@ bool UAEAdaptiveEnvWorldSubsystem::GetM6CellAtWorldLocation(
 {
 	return bM6Enabled
 		&& PathHeatmapGrid.GetCellSnapshotAtWorldLocation(Location, OutSnapshot);
+}
+
+/* Forward one stable Patch query to the World-owned M7 service. */
+bool UAEAdaptiveEnvWorldSubsystem::GetM7Patch(
+	const FGuid& PatchId,
+	FAEVegetationPatchSnapshot& OutSnapshot) const
+{
+	return bM7Enabled
+		&& VegetationPatchService.GetPatchSnapshot(PatchId, OutSnapshot);
 }
 
 // Forward a bounded debug-cell query to the behaviour grid.
@@ -694,6 +767,51 @@ void UAEAdaptiveEnvWorldSubsystem::ApplyPendingRegistrations()
 		}
 	}
 	PendingPathHeatmapRendererAdds.Reset();
+
+	// Apply M7 Patch removals before rebuilding validated registrations.
+	for (const TWeakObjectPtr<UAEVegetationPatchComponent>& Patch : PendingVegetationPatchRemoves)
+	{
+		if (Patch.IsValid())
+		{
+			VegetationPatchService.UnregisterPatch(Patch->GetPatchId());
+			PendingM7VisualCommands.Remove(Patch->GetPatchId());
+		}
+		RegisteredVegetationPatches.Remove(Patch);
+	}
+	PendingVegetationPatchRemoves.Reset();
+	RegisteredVegetationPatches.RemoveAll(
+		[](const TWeakObjectPtr<UAEVegetationPatchComponent>& Item)
+		{
+			return !Item.IsValid();
+		});
+	for (const TWeakObjectPtr<UAEVegetationPatchComponent>& Patch : PendingVegetationPatchAdds)
+	{
+		if (!Patch.IsValid() || !bM7Enabled)
+		{
+			continue;
+		}
+		FAEVegetationPatchRegistration Registration;
+		FString Error;
+		if (Patch->BuildPatchRegistration(
+			GetGridDimensions(),
+			GetGridWorldBounds(),
+			Registration,
+			Error)
+			&& VegetationPatchService.RegisterPatch(Registration))
+		{
+			RegisteredVegetationPatches.AddUnique(Patch);
+		}
+		else
+		{
+			UE_LOG(
+				LogAdaptiveEnv,
+				Warning,
+				TEXT("M7 Patch registration rejected. Patch=%s Error=%s"),
+				*Patch->GetPatchId().ToString(EGuidFormats::DigitsWithHyphens),
+				*Error);
+		}
+	}
+	PendingVegetationPatchAdds.Reset();
 
 	// Apply moisture-source removals before additions so sampling sees one stable array.
 	for (const TWeakObjectPtr<UAEMoistureSourceComponent>& Source : PendingMoistureSourceRemoves)
@@ -861,24 +979,118 @@ void UAEAdaptiveEnvWorldSubsystem::UpdateM5(const float StepSeconds)
 	{
 		bM5Enabled = false;
 		bM6Enabled = false;
-		UE_LOG(LogAdaptiveEnv, Error, TEXT("M5 update failed; M5 and dependent M6 were disabled. World=%s"), *GetNameSafe(GetWorld()));
+		bM7Enabled = false;
+		UE_LOG(LogAdaptiveEnv, Error, TEXT("M5 update failed; M5 and dependent M6/M7 were disabled. World=%s"), *GetNameSafe(GetWorld()));
 	}
 }
 
-/* Freeze M5 snapshots and advance complete M6 path visual state. */
-void UAEAdaptiveEnvWorldSubsystem::UpdateM6(const float StepSeconds)
+/* Build one shared M5 view before parallel M6 and M7 derivation. */
+void UAEAdaptiveEnvWorldSubsystem::UpdateM6AndM7(const float StepSeconds)
+{
+	if (!bM5Enabled || (!bM6Enabled && !bM7Enabled))
+	{
+		return;
+	}
+
+	// Build independent candidate dependencies, then merge them into one row-major workset.
+	TArray<int32> M6CandidateIndices;
+	if (bM6Enabled)
+	{
+		PathHeatmapGrid.BuildCandidateIndices(
+			BehaviourGrid.GetDirtyCellIndices(),
+			ResponseGrid.GetLastChangedCellIndices(),
+			M6CandidateIndices);
+	}
+	TArray<int32> M7RequiredIndices;
+	if (bM7Enabled)
+	{
+		VegetationPatchService.BuildRequiredCellIndices(
+			ResponseGrid.GetLastChangedCellIndices(),
+			M7RequiredIndices);
+	}
+	const int32 CellCount =
+		BehaviourGrid.GetConfig().Dimensions.X * BehaviourGrid.GetConfig().Dimensions.Y;
+	TBitArray<> RequiredFlags(false, CellCount);
+	for (const int32 Index : M6CandidateIndices)
+	{
+		if (RequiredFlags.IsValidIndex(Index))
+		{
+			RequiredFlags[Index] = true;
+		}
+	}
+	for (const int32 Index : M7RequiredIndices)
+	{
+		if (RequiredFlags.IsValidIndex(Index))
+		{
+			RequiredFlags[Index] = true;
+		}
+	}
+	TArray<int32> RequiredIndices;
+	for (TConstSetBitIterator<> Iterator(RequiredFlags); Iterator; ++Iterator)
+	{
+		RequiredIndices.Add(Iterator.GetIndex());
+	}
+	TArray<FAEM5ConsumerCellView> Workset;
+	BuildM5ConsumerWorkset(RequiredIndices, Workset);
+
+	// Advance both consumers from the same immutable committed M5 facts.
+	if (bM6Enabled)
+	{
+		UpdateM6(StepSeconds, M6CandidateIndices, Workset);
+	}
+	if (bM7Enabled)
+	{
+		UpdateM7(StepSeconds, Workset);
+	}
+}
+
+/* Freeze only the downstream M5 fields required by M6 and M7. */
+void UAEAdaptiveEnvWorldSubsystem::BuildM5ConsumerWorkset(
+	const TArray<int32>& CellIndices,
+	TArray<FAEM5ConsumerCellView>& OutWorkset) const
+{
+	OutWorkset.Reset();
+	OutWorkset.Reserve(CellIndices.Num());
+	const FIntPoint Dimensions = BehaviourGrid.GetConfig().Dimensions;
+	for (const int32 Index : CellIndices)
+	{
+		if (Index < 0 || Index >= Dimensions.X * Dimensions.Y)
+		{
+			continue;
+		}
+		const FIntPoint Coordinate(Index % Dimensions.X, Index / Dimensions.X);
+		FAEEcologicalResponseSnapshot M5;
+		if (!ResponseGrid.GetCellSnapshot(Coordinate, M5))
+		{
+			continue;
+		}
+		FAEM5ConsumerCellView& View = OutWorkset.AddDefaulted_GetRef();
+		View.CellIndex = Index;
+		View.DamageRatio = M5.DamageRatio;
+		View.ResponseRevision = static_cast<uint64>(
+			FMath::Max(M5.ResponseRevision, static_cast<int64>(0)));
+		View.ResponseSimulationStep = static_cast<uint64>(
+			FMath::Max(M5.SimulationStep, static_cast<int64>(0)));
+	}
+}
+
+/* Advance complete M6 path visual state from the shared M5 workset. */
+void UAEAdaptiveEnvWorldSubsystem::UpdateM6(
+	const float StepSeconds,
+	const TArray<int32>& CandidateIndices,
+	const TConstArrayView<FAEM5ConsumerCellView> Workset)
 {
 	if (!bM6Enabled || !bM5Enabled)
 	{
 		return;
 	}
 
-	// Merge new M5 responses with Cells still completing an M6 visual transition.
-	TArray<int32> CandidateIndices;
-	PathHeatmapGrid.BuildCandidateIndices(
-		BehaviourGrid.GetDirtyCellIndices(),
-		ResponseGrid.GetLastChangedCellIndices(),
-		CandidateIndices);
+	// Index the already frozen M5 workset without taking another response snapshot.
+	TMap<int32, const FAEM5ConsumerCellView*> M5ViewsByIndex;
+	for (const FAEM5ConsumerCellView& View : Workset)
+	{
+		M5ViewsByIndex.Add(View.CellIndex, &View);
+	}
 	TArray<FAEM6InputSnapshot> Inputs;
 	Inputs.Reserve(CandidateIndices.Num());
 	const FIntPoint Dimensions = BehaviourGrid.GetConfig().Dimensions;
@@ -894,8 +1106,8 @@ void UAEAdaptiveEnvWorldSubsystem::UpdateM6(const float StepSeconds)
 		const FIntPoint Coordinate(Index % Dimensions.X, Index / Dimensions.X);
 		FAEBehaviourCellSnapshot M1;
 		BehaviourGrid.GetCellSnapshot(Coordinate, M1);
-		FAEEcologicalResponseSnapshot M5;
-		if (!ResponseGrid.GetCellSnapshot(Coordinate, M5))
+		const FAEM5ConsumerCellView* const* M5View = M5ViewsByIndex.Find(Index);
+		if (M5View == nullptr)
 		{
 			continue;
 		}
@@ -904,11 +1116,9 @@ void UAEAdaptiveEnvWorldSubsystem::UpdateM6(const float StepSeconds)
 		Input.FlowDirection = M1.FlowDirection;
 		Input.FlowMagnitude = FMath::Clamp(static_cast<double>(M1.FlowMagnitude), 0.0, 1.0);
 		Input.SourceBehaviourRevision = BehaviourGrid.GetBehaviourRevision();
-		Input.DamageRatio = M5.DamageRatio;
-		Input.SourceResponseRevision = static_cast<uint64>(
-			FMath::Max(M5.ResponseRevision, static_cast<int64>(0)));
-		Input.SourceResponseSimulationStep = static_cast<uint64>(
-			FMath::Max(M5.SimulationStep, static_cast<int64>(0)));
+		Input.DamageRatio = (*M5View)->DamageRatio;
+		Input.SourceResponseRevision = (*M5View)->ResponseRevision;
+		Input.SourceResponseSimulationStep = (*M5View)->ResponseSimulationStep;
 		Input.CurrentSimulationStep = CurrentStep;
 	}
 
@@ -937,6 +1147,38 @@ void UAEAdaptiveEnvWorldSubsystem::UpdateM6(const float StepSeconds)
 	for (const FAEPathHeatmapVisualCommand& Command : PathHeatmapGrid.GetVisualCommands())
 	{
 		PendingM6VisualCommands.Add(Command.CellIndex, Command);
+	}
+}
+
+/* Advance M7 Patch health and coalesce immutable visual commands. */
+void UAEAdaptiveEnvWorldSubsystem::UpdateM7(
+	const float StepSeconds,
+	const TConstArrayView<FAEM5ConsumerCellView> Workset)
+{
+	const double DeltaSimulationHours =
+		static_cast<double>(StepSeconds) * SimulationHoursPerRealSecond;
+	const uint64 CurrentStep = static_cast<uint64>(ProcessedBehaviourStepCount + 1);
+	if (!VegetationPatchService.Update(
+		Workset,
+		ResponseGrid.GetLastChangedCellIndices(),
+		DeltaSimulationHours,
+		CurrentStep))
+	{
+		bM7Enabled = false;
+		PendingM7VisualCommands.Reset();
+		UE_LOG(
+			LogAdaptiveEnv,
+			Error,
+			TEXT("M7 update failed and Patch output was disabled. World=%s"),
+			*GetNameSafe(GetWorld()));
+		return;
+	}
+
+	// Coalesce all fixed substeps so render pacing cannot lose the latest Patch state.
+	for (const FAEVegetationPatchVisualCommand& Command :
+		VegetationPatchService.GetVisualCommands())
+	{
+		PendingM7VisualCommands.Add(Command.PatchId, Command);
 	}
 }
 
@@ -975,6 +1217,69 @@ void UAEAdaptiveEnvWorldSubsystem::UpdateM6VisualRenderers(
 		}
 	}
 	PendingM6VisualCommands.Reset();
+}
+
+/* Dispatch bounded Patch commands and apply one shared instance-update budget. */
+void UAEAdaptiveEnvWorldSubsystem::UpdateM7VisualAdapters(
+	const float DeltaTime)
+{
+	if (!bM7Enabled)
+	{
+		return;
+	}
+	const UAdaptiveEnvSettings* Settings = GetDefault<UAdaptiveEnvSettings>();
+	const double RefreshStep = 1.0 / FMath::Max(Settings->M7VisualApplyRateHz, 0.1f);
+	M7VisualAccumulator += FMath::Max(static_cast<double>(DeltaTime), 0.0);
+	if (M7VisualAccumulator < RefreshStep)
+	{
+		return;
+	}
+	M7VisualAccumulator = FMath::Fmod(M7VisualAccumulator, RefreshStep);
+
+	// Dispatch the oldest stable Patch identities first while retaining undispatched commands.
+	TArray<FGuid> CommandPatchIds;
+	PendingM7VisualCommands.GenerateKeyArray(CommandPatchIds);
+	CommandPatchIds.Sort();
+	const int32 CommandBudget = FMath::Min(
+		CommandPatchIds.Num(),
+		FMath::Max(Settings->M7MaxPatchCommandsPerFrame, 1));
+	for (int32 CommandIndex = 0; CommandIndex < CommandBudget; ++CommandIndex)
+	{
+		const FGuid& PatchId = CommandPatchIds[CommandIndex];
+		const FAEVegetationPatchVisualCommand* Command =
+			PendingM7VisualCommands.Find(PatchId);
+		if (Command != nullptr && Command->Target.IsValid())
+		{
+			Command->Target->EnqueueVisualCommand(*Command);
+		}
+		PendingM7VisualCommands.Remove(PatchId);
+	}
+
+	// Share one deterministic instance budget across Patch identities.
+	TArray<UAEVegetationPatchComponent*> OrderedPatches;
+	for (const TWeakObjectPtr<UAEVegetationPatchComponent>& Patch :
+		RegisteredVegetationPatches)
+	{
+		if (Patch.IsValid())
+		{
+			OrderedPatches.Add(Patch.Get());
+		}
+	}
+	OrderedPatches.Sort(
+		[](const UAEVegetationPatchComponent& A, const UAEVegetationPatchComponent& B)
+		{
+			return A.GetPatchId() < B.GetPatchId();
+		});
+	int32 RemainingInstanceBudget =
+		FMath::Max(Settings->M7MaxInstanceUpdatesPerFrame, 1);
+	for (UAEVegetationPatchComponent* Patch : OrderedPatches)
+	{
+		if (RemainingInstanceBudget <= 0)
+		{
+			break;
+		}
+		RemainingInstanceBudget -= Patch->ApplyVisualBudget(RemainingInstanceBudget);
+	}
 }
 
 /* Queue one deterministic full texture reconstruction for a newly bound renderer. */

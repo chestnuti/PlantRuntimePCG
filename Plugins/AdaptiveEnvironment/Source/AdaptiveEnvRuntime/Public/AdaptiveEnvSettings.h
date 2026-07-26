@@ -38,6 +38,10 @@ public:
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "M6")
 	bool bEnableM6 = true;
 
+	/* Enables M7 vegetation Patch response when M5 is active. */
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "M7")
+	bool bEnableM7 = true;
+
 	/* References the single published bundle that atomically supplies M3, M4, and M5 parameters. */
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Parameters")
 	TSoftObjectPtr<UAEPublishedParameterBundleAsset> ParameterBundle;
@@ -162,11 +166,23 @@ public:
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "M6|Material")
 	FName M6EnabledParameterName = TEXT("AE_PathHeatmapEnabled");
 
+	/* Controls how often queued M7 commands may reach registered instance components. */
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "M7|Renderer", meta = (ClampMin = "0.1"))
+	float M7VisualApplyRateHz = 5.0f;
+
+	/* Limits M7 Patch commands dispatched during one visual refresh. */
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "M7|Renderer", meta = (ClampMin = "1"))
+	int32 M7MaxPatchCommandsPerFrame = 64;
+
+	/* Limits M7 per-instance custom-data writes during one visual refresh. */
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "M7|Renderer", meta = (ClampMin = "1"))
+	int32 M7MaxInstanceUpdatesPerFrame = 1024;
+
 	/* Provides a deterministic default seed. */
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Simulation")
 	int32 DefaultRandomSeed = 1337;
 
 	/* Identifies the serialized settings schema version. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Version")
-	int32 SettingsSchemaVersion = 9;
+	int32 SettingsSchemaVersion = 10;
 };

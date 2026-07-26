@@ -6,6 +6,8 @@
 #include "AEEcologicalResponseGrid.h"
 #include "AEHeatmapGrid.h"
 #include "AEPathHeatmapGrid.h"
+#include "AEVegetationPatchStateService.h"
+#include "AEM5ConsumerTypes.h"
 #include "AEM4Types.h"
 #include "Subsystems/WorldSubsystem.h"
 #include "AdaptiveEnvWorldSubsystem.generated.h"
@@ -14,6 +16,7 @@ class UAEBehaviourTrackerComponent;
 class UAEHeatmapRendererComponent;
 class UAEMoistureSourceComponent;
 class UAEPathHeatmapRendererComponent;
+class UAEVegetationPatchComponent;
 class UAEPublishedParameterBundleAsset;
 
 UCLASS()
@@ -73,6 +76,10 @@ public:
 	void RegisterPathHeatmapRenderer(UAEPathHeatmapRendererComponent* Renderer);
 	/* Queues one M6 renderer for safe removal. */
 	void UnregisterPathHeatmapRenderer(UAEPathHeatmapRendererComponent* Renderer);
+	/* Queues one M7 Patch for safe registration. */
+	void RegisterVegetationPatch(UAEVegetationPatchComponent* Patch);
+	/* Queues one M7 Patch for safe removal. */
+	void UnregisterVegetationPatch(UAEVegetationPatchComponent* Patch);
 
 	/* Reads the cell containing a world position in centimetres. */
 	UFUNCTION(BlueprintPure, Category = "Adaptive Environment|Heatmap")
@@ -167,6 +174,20 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Adaptive Environment|M6")
 	int64 GetPathVisualRevision() const { return static_cast<int64>(PathHeatmapGrid.GetPathVisualRevision()); }
 
+	/* Returns whether M7 Patch response is enabled. */
+	UFUNCTION(BlueprintPure, Category = "Adaptive Environment|M7")
+	bool IsM7Enabled() const { return bM7Enabled; }
+	/* Reads one committed M7 Patch by stable identity. */
+	UFUNCTION(BlueprintPure, Category = "Adaptive Environment|M7")
+	bool GetM7Patch(const FGuid& PatchId, FAEVegetationPatchSnapshot& OutSnapshot) const;
+	/* Returns the latest committed M7 Patch-state revision. */
+	UFUNCTION(BlueprintPure, Category = "Adaptive Environment|M7")
+	int64 GetVegetationPatchRevision() const
+	{
+		/* Convert the internal unsigned revision to the reflected signed contract. */
+		return static_cast<int64>(VegetationPatchService.GetPatchStateRevision());
+	}
+
 	/* Collects non-empty cells around a world position for debug drawing. */
 	void GetDebugCells(const FVector& Location, float RadiusCm, int32 MaxCells, TArray<FAEBehaviourCellSnapshot>& OutCells) const;
 	/* Collects active M3 cells around a world position for read-only debug drawing. */
@@ -195,10 +216,18 @@ private:
 	void UpdateM4(float StepSeconds);
 	/* Freezes compatible M3/M4 inputs and commits M5 after M4. */
 	void UpdateM5(float StepSeconds);
-	/* Advances complete M6 path visual state after M5 for one fixed step. */
-	void UpdateM6(float StepSeconds);
+	/* Builds one shared M5 view and advances parallel M6/M7 consumers. */
+	void UpdateM6AndM7(float StepSeconds);
+	/* Freezes the minimal committed M5 fields once for downstream consumers. */
+	void BuildM5ConsumerWorkset(const TArray<int32>& CellIndices, TArray<FAEM5ConsumerCellView>& OutWorkset) const;
+	/* Advances complete M6 path visual state from the shared M5 workset. */
+	void UpdateM6(float StepSeconds, const TArray<int32>& CandidateIndices, TConstArrayView<FAEM5ConsumerCellView> Workset);
+	/* Advances M7 Patch state from the same shared M5 workset. */
+	void UpdateM7(float StepSeconds, TConstArrayView<FAEM5ConsumerCellView> Workset);
 	/* Applies queued M6 commands through registered renderers at a bounded rate. */
 	void UpdateM6VisualRenderers(float DeltaTime);
+	/* Applies queued M7 commands through registered Patch components at bounded rates. */
+	void UpdateM7VisualAdapters(float DeltaTime);
 	/* Queues one full M6 texture reconstruction for a renderer. */
 	void QueueFullM6VisualRebuild(UAEPathHeatmapRendererComponent& Renderer) const;
 	/* Rebuilds M3 once from all current raw Cell totals after a parameter-package switch. */
@@ -228,6 +257,8 @@ private:
 	FAEEcologicalResponseGrid ResponseGrid;
 	/* Owns complete M6 path visual state aligned with M1-M5. */
 	FAEPathHeatmapGrid PathHeatmapGrid;
+	/* Owns deterministic M7 Patch aggregation and health state. */
+	FAEVegetationPatchStateService VegetationPatchService;
 	/* Stores the atomically committed bundle identity and grouped M3/M4 parameter values. */
 	FAEActiveParameterSnapshot ActiveParameters;
 	/* Controls M3 updates independently from the valid M1 runtime pipeline. */
@@ -238,6 +269,8 @@ private:
 	bool bM5Enabled = false;
 	/* Controls World-level M6 state updates and registered visual outputs. */
 	bool bM6Enabled = false;
+	/* Controls World-level M7 state updates and registered instance outputs. */
+	bool bM7Enabled = false;
 	/* Stores the validated effective M6 parameter snapshot for this World. */
 	FAEM6ParameterSet M6Parameters;
 	/* Counts failed M4 World samples retained by fail-closed submission. */
@@ -252,6 +285,8 @@ private:
 	double DebugAccumulator = 0.0;
 	/* Accumulates render time awaiting a bounded M6 texture refresh. */
 	double M6VisualAccumulator = 0.0;
+	/* Accumulates render time awaiting one bounded M7 instance refresh. */
+	double M7VisualAccumulator = 0.0;
 	/* Stores unique raw Cell indices changed since the previous debug refresh. */
 	TSet<int32> PendingDebugActiveCellIndices;
 	/* Stores one fixed behaviour step duration in seconds. */
@@ -282,6 +317,14 @@ private:
 	TArray<TWeakObjectPtr<UAEPathHeatmapRendererComponent>> PendingPathHeatmapRendererRemoves;
 	/* Coalesces latest fixed-step visual commands until the next visual refresh. */
 	TMap<int32, FAEPathHeatmapVisualCommand> PendingM6VisualCommands;
+	/* Stores active registered M7 Patch components. */
+	TArray<TWeakObjectPtr<UAEVegetationPatchComponent>> RegisteredVegetationPatches;
+	/* Stores M7 Patches awaiting safe registration. */
+	TArray<TWeakObjectPtr<UAEVegetationPatchComponent>> PendingVegetationPatchAdds;
+	/* Stores M7 Patches awaiting safe removal. */
+	TArray<TWeakObjectPtr<UAEVegetationPatchComponent>> PendingVegetationPatchRemoves;
+	/* Coalesces the newest visual command per stable Patch identity. */
+	TMap<FGuid, FAEVegetationPatchVisualCommand> PendingM7VisualCommands;
 	/* Stores active registered M4 moisture sources. */
 	TArray<TWeakObjectPtr<UAEMoistureSourceComponent>> RegisteredMoistureSources;
 	/* Stores M4 moisture sources awaiting safe registration. */
