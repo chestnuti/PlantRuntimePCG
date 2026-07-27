@@ -80,6 +80,8 @@ public:
 	void RegisterVegetationPatch(UAEVegetationPatchComponent* Patch);
 	/* Queues one M7 Patch for safe removal. */
 	void UnregisterVegetationPatch(UAEVegetationPatchComponent* Patch);
+	/* Queues one active M7 Patch for safe removal and rebuilt registration. */
+	void RefreshVegetationPatch(UAEVegetationPatchComponent* Patch);
 
 	/* Reads the cell containing a world position in centimetres. */
 	UFUNCTION(BlueprintPure, Category = "Adaptive Environment|Heatmap")

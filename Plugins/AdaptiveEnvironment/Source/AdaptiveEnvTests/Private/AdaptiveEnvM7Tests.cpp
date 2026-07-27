@@ -3,7 +3,11 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "AEVegetationPatchComponent.h"
+#include "AEPlantVisualResponseProfile.h"
+#include "AEVegetationSpeciesResponseProfile.h"
 #include "AEVegetationPatchStateService.h"
+#include "Components/InstancedStaticMeshComponent.h"
+#include "GameFramework/Actor.h"
 
 namespace AdaptiveEnvM7Tests
 {
@@ -51,6 +55,27 @@ namespace AdaptiveEnvM7Tests
 		View.ResponseRevision = Revision;
 		View.ResponseSimulationStep = Step;
 		return View;
+	}
+
+	/* Configures one transient Patch with valid profiles and an identity target. */
+	UAEVegetationPatchComponent* MakeSpatialPatch(
+		UInstancedStaticMeshComponent*& OutInstances)
+	{
+		AActor* Owner = NewObject<AActor>();
+		UAEVegetationPatchComponent* Patch =
+			NewObject<UAEVegetationPatchComponent>(Owner);
+		Owner->AddInstanceComponent(Patch);
+		Patch->PatchId = FGuid(0xAE000007, 0, 0, 5);
+		Patch->SpeciesProfile =
+			NewObject<UAEVegetationSpeciesResponseProfile>(Patch);
+		Patch->SpeciesProfile->SpeciesId = FGuid(0xAE000007, 0, 0, 6);
+		Patch->SpeciesProfile->SemanticVersion = TEXT("1.0.0-test");
+		Patch->SpeciesProfile->ContentHash = FString::ChrN(64, TEXT('a'));
+		Patch->VisualProfile = NewObject<UAEPlantVisualResponseProfile>(Patch);
+		OutInstances = NewObject<UInstancedStaticMeshComponent>(Owner);
+		Owner->AddInstanceComponent(OutInstances);
+		Patch->TargetInstancesReference.OverrideComponent = OutInstances;
+		return Patch;
 	}
 }
 
@@ -145,6 +170,63 @@ bool FAEM7RevisionAndValidationTest::RunTest(const FString& Parameters)
 	Invalid.Parameters = AdaptiveEnvM7Tests::MakeParameters();
 	Invalid.Component = Component;
 	TestFalse(TEXT("Duplicate Cell weights are rejected"), Service.RegisterPatch(Invalid));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FAEM7SpatialRegistrationDiagnosticsTest,
+	"AdaptiveEnv.M7.Contract.SpatialRegistrationDiagnostics",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+/* Verifies zero-instance rejection is distinct from a valid in-bounds registration. */
+bool FAEM7SpatialRegistrationDiagnosticsTest::RunTest(const FString& Parameters)
+{
+	UInstancedStaticMeshComponent* Instances = nullptr;
+	UAEVegetationPatchComponent* Patch =
+		AdaptiveEnvM7Tests::MakeSpatialPatch(Instances);
+	const FIntPoint Dimensions(2, 2);
+	const FBox2D Bounds(FVector2D(-100.0, -100.0), FVector2D(100.0, 100.0));
+	FAEVegetationPatchRegistration Registration;
+	FString Error;
+
+	// Reject the empty collection with an actionable diagnostic.
+	TestFalse(
+		TEXT("Zero-instance Patch is rejected"),
+		Patch->BuildPatchRegistration(Dimensions, Bounds, Registration, Error));
+	TestTrue(
+		TEXT("Zero-instance diagnostic is specific"),
+		Error.Contains(TEXT("zero instances")));
+
+	// Accept one readable world-space transform inside the half-open Grid.
+	Instances->AddInstance(FTransform(FVector::ZeroVector));
+	Error.Reset();
+	TestTrue(
+		TEXT("In-bounds Patch registration builds"),
+		Patch->BuildPatchRegistration(Dimensions, Bounds, Registration, Error));
+	TestEqual(TEXT("One weighted Cell is published"), Registration.WeightedCells.Num(), 1);
+	TestEqual(TEXT("Origin maps to row-major Cell 3"), Registration.WeightedCells[0].CellIndex, 3);
+	TestTrue(
+		TEXT("Single Cell receives full weight"),
+		FMath::IsNearlyEqual(Registration.WeightedCells[0].Weight, 1.0));
+
+	// Accept the same-Actor target and reject a component owned elsewhere.
+	TestTrue(
+		TEXT("Runtime setter accepts the same-Actor target"),
+		Patch->SetTargetInstancesComponent(Instances));
+	AActor* OtherOwner = NewObject<AActor>();
+	UInstancedStaticMeshComponent* OtherInstances =
+		NewObject<UInstancedStaticMeshComponent>(OtherOwner);
+	OtherOwner->AddInstanceComponent(OtherInstances);
+	AddExpectedError(
+		TEXT("M7 target assignment rejected"),
+		EAutomationExpectedErrorFlags::Contains,
+		1);
+	TestFalse(
+		TEXT("Runtime setter rejects another Actor target"),
+		Patch->SetTargetInstancesComponent(OtherInstances));
+	TestTrue(
+		TEXT("Rejected assignment preserves the valid target"),
+		Patch->GetTargetInstancesComponent() == Instances);
 	return true;
 }
 

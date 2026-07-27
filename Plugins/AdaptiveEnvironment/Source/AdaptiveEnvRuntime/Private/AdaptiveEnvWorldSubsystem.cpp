@@ -370,6 +370,17 @@ void UAEAdaptiveEnvWorldSubsystem::UnregisterVegetationPatch(
 	}
 }
 
+/* Defer one M7 remove-and-add cycle to rebuild spatial weights safely. */
+void UAEAdaptiveEnvWorldSubsystem::RefreshVegetationPatch(
+	UAEVegetationPatchComponent* Patch)
+{
+	if (IsValid(Patch))
+	{
+		PendingVegetationPatchRemoves.AddUnique(Patch);
+		PendingVegetationPatchAdds.AddUnique(Patch);
+	}
+}
+
 // Forward a world-position cell query to the owned behaviour grid.
 bool UAEAdaptiveEnvWorldSubsystem::GetBehaviourCellAtWorldLocation(const FVector& Location, FAEBehaviourCellSnapshot& OutSnapshot) const
 {
@@ -792,24 +803,49 @@ void UAEAdaptiveEnvWorldSubsystem::ApplyPendingRegistrations()
 		}
 		FAEVegetationPatchRegistration Registration;
 		FString Error;
-		if (Patch->BuildPatchRegistration(
+		const bool bBuilt = Patch->BuildPatchRegistration(
 			GetGridDimensions(),
 			GetGridWorldBounds(),
 			Registration,
-			Error)
-			&& VegetationPatchService.RegisterPatch(Registration))
-		{
-			RegisteredVegetationPatches.AddUnique(Patch);
-		}
-		else
+			Error);
+		if (!bBuilt)
 		{
 			UE_LOG(
 				LogAdaptiveEnv,
 				Warning,
-				TEXT("M7 Patch registration rejected. Patch=%s Error=%s"),
+				TEXT("M7 Patch registration build rejected. Patch=%s Error=%s"),
 				*Patch->GetPatchId().ToString(EGuidFormats::DigitsWithHyphens),
 				*Error);
+			continue;
 		}
+		if (!VegetationPatchService.RegisterPatch(Registration))
+		{
+			UE_LOG(
+				LogAdaptiveEnv,
+				Warning,
+				TEXT("M7 Patch service registration rejected. Patch=%s Generation=%u."),
+				*Patch->GetPatchId().ToString(EGuidFormats::DigitsWithHyphens),
+				Registration.RegistrationGeneration);
+			continue;
+		}
+
+		// Start from healthy visible material data before the first M5 revision arrives.
+		RegisteredVegetationPatches.AddUnique(Patch);
+		Patch->EnqueueVisualCommand({
+			Registration.PatchId,
+			1.0f,
+			1.0f,
+			0,
+			0,
+			Registration.RegistrationGeneration,
+			Patch});
+		UE_LOG(
+			LogAdaptiveEnv,
+			Log,
+			TEXT("M7 Patch registered successfully. Patch=%s Generation=%u WeightedCells=%d."),
+			*Registration.PatchId.ToString(EGuidFormats::DigitsWithHyphens),
+			Registration.RegistrationGeneration,
+			Registration.WeightedCells.Num());
 	}
 	PendingVegetationPatchAdds.Reset();
 
