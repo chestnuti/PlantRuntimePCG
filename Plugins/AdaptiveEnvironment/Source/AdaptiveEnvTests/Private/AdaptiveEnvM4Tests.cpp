@@ -4,6 +4,8 @@
 
 #include "AEM4ParameterService.h"
 #include "AEEnvironmentConstraintGrid.h"
+#include "AEWorldConstraintProvider.h"
+#include "Components/StaticMeshComponent.h"
 
 namespace AdaptiveEnvM4Tests
 {
@@ -85,11 +87,39 @@ bool FAEM4GridRevisionTest::RunTest(const FString& Parameters)
 	FAEEnvironmentConstraintSnapshot First;
 	TestTrue(TEXT("Committed M4 Cell is queryable"), Grid.GetCellSnapshot(FIntPoint::ZeroValue, First));
 	TestEqual(TEXT("First commit increments revision"), Grid.GetConstraintRevision(), static_cast<uint64>(1));
+	TestTrue(TEXT("Unchanged observation commits"), Grid.Update({Observation}, 0.5, 2, AdaptiveEnvM4Tests::MakeParameters()));
+	FAEEnvironmentConstraintSnapshot Unchanged;
+	Grid.GetCellSnapshot(FIntPoint::ZeroValue, Unchanged);
+	TestEqual(TEXT("Unchanged observation preserves Cell revision"), Unchanged.ConstraintRevision, First.ConstraintRevision);
+	TestEqual(TEXT("Unchanged observation preserves Grid revision"), Grid.GetConstraintRevision(), static_cast<uint64>(1));
+	TestEqual(TEXT("Unchanged observation advances simulation step"), Unchanged.SimulationStep, static_cast<int64>(2));
 	Observation.bValid = false;
-	TestTrue(TEXT("Invalid observation does not fail the batch"), Grid.Update({Observation}, 0.5, 2, AdaptiveEnvM4Tests::MakeParameters()));
+	TestTrue(TEXT("Invalid observation does not fail the batch"), Grid.Update({Observation}, 0.5, 3, AdaptiveEnvM4Tests::MakeParameters()));
 	FAEEnvironmentConstraintSnapshot Retained;
 	Grid.GetCellSnapshot(FIntPoint::ZeroValue, Retained);
 	TestEqual(TEXT("Fail-closed input preserves revision"), Retained.ConstraintRevision, First.ConstraintRevision);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FAEM4GroundTagValidationTest,
+	"AdaptiveEnv.M4.Provider.EnvironmentGroundTagValidation",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+/* Verifies M4 accepts tagged static surfaces and rejects untagged or invalid-normal hits. */
+bool FAEM4GroundTagValidationTest::RunTest(const FString& Parameters)
+{
+	UStaticMeshComponent* Component = NewObject<UStaticMeshComponent>();
+	FHitResult Hit;
+	Hit.Component = Component;
+	Hit.ImpactNormal = FVector::UpVector;
+	TestFalse(TEXT("Untagged component is not ecological ground"), FAEWorldConstraintProvider::IsValidGroundHit(Hit));
+
+	Component->ComponentTags.Add(FAEWorldConstraintProvider::EnvironmentGroundTag);
+	TestTrue(TEXT("Tagged component is ecological ground"), FAEWorldConstraintProvider::IsValidGroundHit(Hit));
+
+	Hit.ImpactNormal = FVector::ZeroVector;
+	TestFalse(TEXT("Invalid normal rejects otherwise tagged ground"), FAEWorldConstraintProvider::IsValidGroundHit(Hit));
 	return true;
 }
 

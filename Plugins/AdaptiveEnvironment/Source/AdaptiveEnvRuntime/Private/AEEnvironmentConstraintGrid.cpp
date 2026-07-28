@@ -56,6 +56,8 @@ bool FAEEnvironmentConstraintGrid::Update(const TArray<FAEWorldConstraintObserva
 		const FAEEnvironmentConstraintSnapshot Previous = Cell.Snapshot;
 		FAEEnvironmentConstraintSnapshot Next = FAEM4ParameterService::EvaluateEnvironment(
 			Observation.SlopeDegrees, Observation.MoistureRatio, DeltaSimulationHours, Parameters, Cell.StateMemory);
+		// Preserve the last logical revision when only observation metadata or the simulation step advances.
+		Next.ConstraintRevision = Previous.ConstraintRevision;
 		Next.Coordinate = Observation.Coordinate;
 		Next.WorldCenter = Observation.WorldCenter;
 		Next.SlopeDegrees = static_cast<float>(Observation.SlopeDegrees);

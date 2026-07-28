@@ -7,6 +7,7 @@
 #include "AEHeatmapGrid.h"
 #include "AEPathHeatmapGrid.h"
 #include "AEM4Types.h"
+#include "AEM7Types.h"
 #include "Subsystems/WorldSubsystem.h"
 #include "AdaptiveEnvWorldSubsystem.generated.h"
 
@@ -14,6 +15,7 @@ class UAEBehaviourTrackerComponent;
 class UAEHeatmapRendererComponent;
 class UAEMoistureSourceComponent;
 class UAEPathHeatmapRendererComponent;
+class UAEVegetationDistributionComponent;
 class UAEPublishedParameterBundleAsset;
 
 UCLASS()
@@ -73,6 +75,10 @@ public:
 	void RegisterPathHeatmapRenderer(UAEPathHeatmapRendererComponent* Renderer);
 	/* Queues one M6 renderer for safe removal. */
 	void UnregisterPathHeatmapRenderer(UAEPathHeatmapRendererComponent* Renderer);
+	/* Queues one self-owned M7 vegetation distribution for safe registration. */
+	void RegisterVegetationDistribution(UAEVegetationDistributionComponent* Distribution);
+	/* Queues one M7 vegetation distribution for safe removal. */
+	void UnregisterVegetationDistribution(UAEVegetationDistributionComponent* Distribution);
 
 	/* Reads the cell containing a world position in centimetres. */
 	UFUNCTION(BlueprintPure, Category = "Adaptive Environment|Heatmap")
@@ -167,6 +173,13 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Adaptive Environment|M6")
 	int64 GetPathVisualRevision() const { return static_cast<int64>(PathHeatmapGrid.GetPathVisualRevision()); }
 
+	/* Returns whether M7 vegetation distribution is enabled. */
+	UFUNCTION(BlueprintPure, Category = "Adaptive Environment|M7")
+	bool IsM7Enabled() const { return bM7Enabled; }
+	/* Provides M8 and gameplay systems with immutable per-plant state. */
+	UFUNCTION(BlueprintPure, Category = "Adaptive Environment|M7")
+	bool GetM7PlantInstanceState(int64 StablePointId, FAEPlantInstanceSnapshot& OutSnapshot) const;
+
 	/* Collects non-empty cells around a world position for debug drawing. */
 	void GetDebugCells(const FVector& Location, float RadiusCm, int32 MaxCells, TArray<FAEBehaviourCellSnapshot>& OutCells) const;
 	/* Collects active M3 cells around a world position for read-only debug drawing. */
@@ -197,6 +210,10 @@ private:
 	void UpdateM5(float StepSeconds);
 	/* Advances complete M6 path visual state after M5 for one fixed step. */
 	void UpdateM6(float StepSeconds);
+	/* Derives M7 from the same committed M5 work set without consuming M6 output. */
+	void UpdateM7(float StepSeconds);
+	/* Applies bounded per-instance custom-data and transform changes. */
+	void UpdateM7VisualAdapters();
 	/* Applies queued M6 commands through registered renderers at a bounded rate. */
 	void UpdateM6VisualRenderers(float DeltaTime);
 	/* Queues one full M6 texture reconstruction for a renderer. */
@@ -238,6 +255,8 @@ private:
 	bool bM5Enabled = false;
 	/* Controls World-level M6 state updates and registered visual outputs. */
 	bool bM6Enabled = false;
+	/* Controls self-owned M7 distributions when M4 and M5 are available. */
+	bool bM7Enabled = false;
 	/* Stores the validated effective M6 parameter snapshot for this World. */
 	FAEM6ParameterSet M6Parameters;
 	/* Counts failed M4 World samples retained by fail-closed submission. */
@@ -282,6 +301,10 @@ private:
 	TArray<TWeakObjectPtr<UAEPathHeatmapRendererComponent>> PendingPathHeatmapRendererRemoves;
 	/* Coalesces latest fixed-step visual commands until the next visual refresh. */
 	TMap<int32, FAEPathHeatmapVisualCommand> PendingM6VisualCommands;
+	/* Stores active non-owning M7 distribution registrations. */
+	TArray<TWeakObjectPtr<UAEVegetationDistributionComponent>> RegisteredVegetationDistributions;
+	TArray<TWeakObjectPtr<UAEVegetationDistributionComponent>> PendingVegetationDistributionAdds;
+	TArray<TWeakObjectPtr<UAEVegetationDistributionComponent>> PendingVegetationDistributionRemoves;
 	/* Stores active registered M4 moisture sources. */
 	TArray<TWeakObjectPtr<UAEMoistureSourceComponent>> RegisteredMoistureSources;
 	/* Stores M4 moisture sources awaiting safe registration. */

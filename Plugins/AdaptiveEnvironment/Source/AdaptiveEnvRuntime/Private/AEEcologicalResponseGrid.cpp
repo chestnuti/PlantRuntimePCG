@@ -66,6 +66,8 @@ bool FAEEcologicalResponseGrid::Update(const TArray<FAEM5InputSnapshot>& Inputs,
 		const FAEEcologicalResponseSnapshot Previous = Cell.Snapshot;
 		FAEEcologicalResponseSnapshot Next = FAEM5ParameterService::EvaluateResponse(Input.Exposure, Input.ExposureMaximum,
 			Input.ConstraintPressureRatio, Input.HabitatSuitabilityRatio, DeltaSimulationHours, Parameters, Cell.StateMemory);
+		// Preserve the last logical revision when accepted upstream versions do not change the response values.
+		Next.ResponseRevision = Previous.ResponseRevision;
 		Next.Coordinate = Input.Coordinate;
 		Next.WorldCenter = GetCellWorldCenter(Input.Coordinate);
 		Next.SourceExposureRevision = static_cast<int64>(Input.ExposureRevision);

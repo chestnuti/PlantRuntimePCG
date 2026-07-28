@@ -24,6 +24,10 @@ struct ADAPTIVEENVRUNTIME_API FAEWorldConstraintObservation
 class ADAPTIVEENVRUNTIME_API FAEWorldConstraintProvider
 {
 public:
+	/* Names the Component or Actor tag that authorizes an ecological ground surface. */
+	static const FName EnvironmentGroundTag;
+	/* Reports whether one hit has a finite ground normal and an approved ground identity. */
+	static bool IsValidGroundHit(const FHitResult& Hit);
 	/* Samples one Cell on the Game Thread and returns false without partial output on failure. */
 	static bool SampleCell(
 		UWorld& World,
