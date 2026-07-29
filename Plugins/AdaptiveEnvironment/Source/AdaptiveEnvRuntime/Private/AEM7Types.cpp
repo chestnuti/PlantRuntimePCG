@@ -46,3 +46,35 @@ EAEPlantLifecycleState FAEM7LifecycleModel::ResolveInitialState(
 	}
 	return EAEPlantLifecycleState::Stable;
 }
+
+/* Resolves structural eligibility and health hysteresis into stable visibility. */
+bool FAEM7LifecycleModel::ResolveVisibility(
+	const bool bStructurallyEligible,
+	const bool bPreviouslyVisible,
+	const bool bHealthInitialized,
+	const float HealthRatio,
+	const float DeadHealthThreshold,
+	const float StateEpsilon)
+{
+	if (!bStructurallyEligible)
+	{
+		return false;
+	}
+
+	// Clamp the removal and reappearance thresholds into one ordered health interval.
+	const float ClampedHealth = FMath::Clamp(HealthRatio, 0.0f, 1.0f);
+	const float RemovalThreshold = FMath::Clamp(DeadHealthThreshold, 0.0f, 1.0f);
+	const float ReappearanceThreshold = FMath::Clamp(
+		RemovalThreshold + FMath::Max(StateEpsilon, 0.0f),
+		RemovalThreshold,
+		1.0f);
+	if (!bHealthInitialized)
+	{
+		return ClampedHealth > RemovalThreshold;
+	}
+	if (bPreviouslyVisible)
+	{
+		return ClampedHealth > RemovalThreshold;
+	}
+	return ClampedHealth >= ReappearanceThreshold;
+}

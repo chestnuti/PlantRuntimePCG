@@ -19,7 +19,7 @@ public:
 	/* Stores the immutable research profile identity. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Identity") FGuid ProfileId;
 	/* Stores the semantic profile version. */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Identity") FString SemanticVersion = TEXT("1.2.0");
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Identity") FString SemanticVersion = TEXT("1.3.0");
 	/* Supplies the mesh owned by the runtime HISM. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Visual") TSoftObjectPtr<UStaticMesh> StaticMesh;
 	/* Offsets each instance anchor along the projected ground normal in centimetres. */
@@ -52,12 +52,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Lifecycle", meta = (ClampMin = "0.0")) float DeclineRatePerSimulationHour = 0.5f;
 	/* Defines health recovery per simulation hour. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Lifecycle", meta = (ClampMin = "0.0")) float RecoveryRatePerSimulationHour = 0.25f;
-	/* Shapes the Damage-to-density response. */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Lifecycle", meta = (ClampMin = "0.0", ClampMax = "1.0")) float DensityDamageExponent = 1.0f;
 	/* Defines the health threshold for terminal state. */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Lifecycle", meta = (ClampMin = "0.0", ClampMax = "1.0")) float DeadHealthThreshold = 0.01f;
-	/* Suppresses lifecycle transition jitter. */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Lifecycle", meta = (ClampMin = "0.000001", ClampMax = "1.0")) float StateEpsilon = 0.005f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Lifecycle", meta = (ClampMin = "0.0", ClampMax = "1.0")) float DeadHealthThreshold = 0.1f;
+	/* Defines the health hysteresis width above the dead threshold for reappearance. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Lifecycle", meta = (ClampMin = "0.0", ClampMax = "1.0")) float StateEpsilon = 0.1f;
 	/* Defines deterministic per-candidate health variation. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Lifecycle", meta = (ClampMin = "0.0", ClampMax = "0.49")) float HealthVariationAmplitude = 0.05f;
 

@@ -73,4 +73,12 @@ struct ADAPTIVEENVRUNTIME_API FAEM7LifecycleModel
 		float RecoveryRatePerSimulationHour);
 	/* Classifies the first valid target as stable or terminal. */
 	static EAEPlantLifecycleState ResolveInitialState(float HealthRatio, float DeadHealthThreshold);
+	/* Resolves structural eligibility and health hysteresis into stable visibility. */
+	static bool ResolveVisibility(
+		bool bStructurallyEligible,
+		bool bPreviouslyVisible,
+		bool bHealthInitialized,
+		float HealthRatio,
+		float DeadHealthThreshold,
+		float StateEpsilon);
 };

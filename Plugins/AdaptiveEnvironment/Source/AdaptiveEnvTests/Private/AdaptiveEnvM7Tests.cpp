@@ -197,6 +197,37 @@ bool FAEM7OccupiedCellBaselineTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FAEM7VisibilityHysteresisTest,
+	"AdaptiveEnv.M7.Lifecycle.VisibilityHysteresis",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+/* Verifies structural eligibility and existing health thresholds produce stable hide/reappear behavior. */
+bool FAEM7VisibilityHysteresisTest::RunTest(const FString& Parameters)
+{
+	// Structural rejection always wins regardless of health.
+	TestFalse(
+		TEXT("Structurally ineligible candidate stays hidden"),
+		FAEM7LifecycleModel::ResolveVisibility(false, true, true, 1.0f, 0.1f, 0.1f));
+
+	// A visible plant remains until health reaches the removal threshold.
+	TestTrue(
+		TEXT("Visible candidate remains during decline above removal health"),
+		FAEM7LifecycleModel::ResolveVisibility(true, true, true, 0.11f, 0.1f, 0.1f));
+	TestFalse(
+		TEXT("Visible candidate hides at removal health"),
+		FAEM7LifecycleModel::ResolveVisibility(true, true, true, 0.1f, 0.1f, 0.1f));
+
+	// A hidden plant stays hidden inside the dead band and returns at the upper threshold.
+	TestFalse(
+		TEXT("Hidden candidate remains hidden inside hysteresis band"),
+		FAEM7LifecycleModel::ResolveVisibility(true, false, true, 0.19f, 0.1f, 0.1f));
+	TestTrue(
+		TEXT("Hidden candidate reappears at recovery threshold"),
+		FAEM7LifecycleModel::ResolveVisibility(true, false, true, 0.2f, 0.1f, 0.1f));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FAEM7GroundProjectionTraceTest,
 	"AdaptiveEnv.M7.GroundProjection.ApprovedSurface",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -283,7 +314,9 @@ bool FAEM7SpeciesCollisionDefaultsTest::RunTest(const FString& Parameters)
 	TestFalse(TEXT("Navigation effect defaults off"), Profile->bCanEverAffectNavigation);
 	TestTrue(TEXT("Ground offset defaults to zero"), FMath::IsNearlyZero(Profile->GroundOffsetCm));
 	TestFalse(TEXT("Ground normal alignment defaults off"), Profile->bAlignToGroundNormal);
-	TestEqual(TEXT("New profile semantic version"), Profile->SemanticVersion, FString(TEXT("1.2.0")));
+	TestTrue(TEXT("Dead health defaults to ten percent"), FMath::IsNearlyEqual(Profile->DeadHealthThreshold, 0.1f));
+	TestTrue(TEXT("Visibility hysteresis defaults to ten percent"), FMath::IsNearlyEqual(Profile->StateEpsilon, 0.1f));
+	TestEqual(TEXT("New profile semantic version"), Profile->SemanticVersion, FString(TEXT("1.3.0")));
 	return true;
 }
 

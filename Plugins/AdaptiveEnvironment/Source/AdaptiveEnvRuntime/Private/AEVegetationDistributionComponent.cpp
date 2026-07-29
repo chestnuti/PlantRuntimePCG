@@ -299,20 +299,21 @@ void UAEVegetationDistributionComponent::AdvanceM7(
 			const bool bHasM5 = Subsystem.GetM5Cell(Coordinate, M5);
 			if (!bHasM4) M4.HabitatSuitabilityRatio = 1.0f;
 			if (!bHasM5) M5.DamageRatio = 0.0f;
-			const float DensityRatio = FMath::Pow(1.0f - FMath::Clamp(M5.DamageRatio, 0.0f, 1.0f), Profile->DensityDamageExponent);
 			bool bCellTransitionActive = false;
 			for (const int32 PointIndex : Runtime.CandidateIndicesByCell[CellIndex])
 			{
 				const FAEM7CandidatePoint& Candidate = Runtime.Candidates[PointIndex];
 				FAEPlantInstanceSnapshot& Snapshot = Runtime.Snapshots[PointIndex];
 				const float BiomeWeight = Profile->BiomeMap != nullptr ? Profile->BiomeMap->SampleWeight(Candidate.Location) : 1.0f;
-				const float DistributionRatio = FMath::Clamp(M4.HabitatSuitabilityRatio * BiomeWeight * DensityRatio, 0.0f, 1.0f);
+				const float DistributionRatio = FMath::Clamp(M4.HabitatSuitabilityRatio * BiomeWeight, 0.0f, 1.0f);
+				const bool bStructurallyEligible = Candidate.SelectionKey < DistributionRatio;
 				const float TargetHealth = FMath::Clamp(
 					1.0f - FMath::Clamp(M5.DamageRatio, 0.0f, 1.0f) + Candidate.HealthVariation,
 					0.0f,
 					1.0f);
 				const bool bWasHealthInitialized = Runtime.InitializedHealth[PointIndex];
 				const float PreviousHealth = Snapshot.HealthRatio;
+				const bool bPreviouslyVisible = Snapshot.bVisible;
 				Snapshot.HealthRatio = FAEM7LifecycleModel::ResolveHealthRatio(
 					PreviousHealth,
 					TargetHealth,
@@ -321,7 +322,10 @@ void UAEVegetationDistributionComponent::AdvanceM7(
 					Profile->DeclineRatePerSimulationHour,
 					Profile->RecoveryRatePerSimulationHour);
 				Runtime.InitializedHealth[PointIndex] = true;
-				const bool bAtTarget = FMath::Abs(Snapshot.HealthRatio - TargetHealth) <= Profile->StateEpsilon;
+				const bool bAtTarget = FMath::IsNearlyEqual(
+					Snapshot.HealthRatio,
+					TargetHealth,
+					UE_KINDA_SMALL_NUMBER);
 				if (!bWasHealthInitialized)
 				{
 					Snapshot.LifecycleState = FAEM7LifecycleModel::ResolveInitialState(
@@ -352,13 +356,19 @@ void UAEVegetationDistributionComponent::AdvanceM7(
 						? EAEPlantLifecycleState::Growing
 						: EAEPlantLifecycleState::Stable;
 				}
-				if (Snapshot.LifecycleState == EAEPlantLifecycleState::Growing && Snapshot.HealthRatio >= 1.0f - Profile->StateEpsilon)
+				if (Snapshot.LifecycleState == EAEPlantLifecycleState::Growing
+					&& Snapshot.HealthRatio >= 1.0f - UE_KINDA_SMALL_NUMBER)
 				{
 					Snapshot.LifecycleState = EAEPlantLifecycleState::Stable;
 				}
 				Snapshot.DistributionRatio = DistributionRatio;
-				Snapshot.bVisible = Candidate.SelectionKey < DistributionRatio
-					&& Snapshot.LifecycleState != EAEPlantLifecycleState::Dead;
+				Snapshot.bVisible = FAEM7LifecycleModel::ResolveVisibility(
+					bStructurallyEligible,
+					bPreviouslyVisible,
+					bWasHealthInitialized,
+					Snapshot.HealthRatio,
+					Profile->DeadHealthThreshold,
+					Profile->StateEpsilon);
 				Snapshot.LifecycleProgressRatio = FMath::Clamp(
 					bWasHealthInitialized
 						? FMath::Abs(Snapshot.HealthRatio - PreviousHealth) / FMath::Max(Profile->StateEpsilon, 0.000001f)
