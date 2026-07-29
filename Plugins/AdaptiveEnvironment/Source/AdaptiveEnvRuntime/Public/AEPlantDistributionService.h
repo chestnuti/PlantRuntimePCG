@@ -23,8 +23,6 @@ struct ADAPTIVEENVRUNTIME_API FAEPlantDistributionConfig
 	int32 MaximumCandidateCount = 50000;
 	/* Defines deterministic individual health variation in ratio units. */
 	float HealthVariationAmplitude = 0.0f;
-	/* Supplies the initial world Z coordinate in centimetres. */
-	float WorldZ = 0.0f;
 };
 
 class ADAPTIVEENVRUNTIME_API FAEPlantDistributionService
@@ -35,6 +33,11 @@ public:
 		const FAEPlantDistributionConfig& Config,
 		TArray<FAEM7CandidatePoint>& OutCandidates,
 		FString& OutError);
+	/* Collects unique valid row-major Cell indices occupied by one candidate pool. */
+	static void CollectOccupiedCellIndices(
+		const TArray<FAEM7CandidatePoint>& Candidates,
+		const FIntPoint& GridDimensions,
+		TArray<int32>& OutCellIndices);
 	/* Applies the stable candidate identity avalanche mix. */
 	static uint64 MixHash(uint64 Value);
 	/* Converts stable hash bits into a normalized selection key. */

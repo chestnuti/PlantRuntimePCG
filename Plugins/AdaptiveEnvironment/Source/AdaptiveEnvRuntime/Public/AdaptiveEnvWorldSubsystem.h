@@ -79,6 +79,8 @@ public:
 	void RegisterVegetationDistribution(UAEVegetationDistributionComponent* Distribution);
 	/* Queues one M7 vegetation distribution for safe removal. */
 	void UnregisterVegetationDistribution(UAEVegetationDistributionComponent* Distribution);
+	/* Queues occupied M7 Cells for one authoritative M4/M5 baseline pass. */
+	void RequestM7BaselineInitialization(const UAEVegetationDistributionComponent* Distribution);
 
 	/* Reads the cell containing a world position in centimetres. */
 	UFUNCTION(BlueprintPure, Category = "Adaptive Environment|Heatmap")
@@ -305,6 +307,8 @@ private:
 	TArray<TWeakObjectPtr<UAEVegetationDistributionComponent>> RegisteredVegetationDistributions;
 	TArray<TWeakObjectPtr<UAEVegetationDistributionComponent>> PendingVegetationDistributionAdds;
 	TArray<TWeakObjectPtr<UAEVegetationDistributionComponent>> PendingVegetationDistributionRemoves;
+	/* Stores unique row-major M7 Cells awaiting their first authoritative M4 sample. */
+	TSet<int32> PendingM7BaselineCellIndices;
 	/* Stores active registered M4 moisture sources. */
 	TArray<TWeakObjectPtr<UAEMoistureSourceComponent>> RegisteredMoistureSources;
 	/* Stores M4 moisture sources awaiting safe registration. */

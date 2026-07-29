@@ -9,6 +9,11 @@ bool UAEPlantSpeciesProfile::IsValidProfile(FString& OutError) const
 		OutError = TEXT("Species id, static mesh, spacing, and maximum density are required.");
 		return false;
 	}
+	if (!FMath::IsFinite(GroundOffsetCm))
+	{
+		OutError = TEXT("Ground offset must be finite.");
+		return false;
+	}
 	if (BiomeMap != nullptr && !BiomeMap->IsValidMap(OutError))
 	{
 		return false;

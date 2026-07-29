@@ -29,7 +29,7 @@ bool FAEPlantDistributionService::GenerateStableCandidatePool(
 		FVector Location(
 			FMath::RoundToDouble(Random.FRandRange(Config.WorldBounds.Min.X, Config.WorldBounds.Max.X)),
 			FMath::RoundToDouble(Random.FRandRange(Config.WorldBounds.Min.Y, Config.WorldBounds.Max.Y)),
-			Config.WorldZ);
+			0.0);
 		bool bAccepted = true;
 		for (const FAEM7CandidatePoint& Existing : OutCandidates)
 		{
@@ -61,6 +61,32 @@ bool FAEPlantDistributionService::GenerateStableCandidatePool(
 	}
 	OutError.Reset();
 	return OutCandidates.Num() > 0;
+}
+
+/* Collects deterministic candidate coverage without expanding to unused Grid Cells. */
+void FAEPlantDistributionService::CollectOccupiedCellIndices(
+	const TArray<FAEM7CandidatePoint>& Candidates,
+	const FIntPoint& GridDimensions,
+	TArray<int32>& OutCellIndices)
+{
+	TSet<int32> UniqueIndices;
+	if (GridDimensions.X > 0 && GridDimensions.Y > 0)
+	{
+		for (const FAEM7CandidatePoint& Candidate : Candidates)
+		{
+			if (Candidate.CellCoordinate.X >= 0
+				&& Candidate.CellCoordinate.Y >= 0
+				&& Candidate.CellCoordinate.X < GridDimensions.X
+				&& Candidate.CellCoordinate.Y < GridDimensions.Y)
+			{
+				UniqueIndices.Add(
+					Candidate.CellCoordinate.Y * GridDimensions.X
+					+ Candidate.CellCoordinate.X);
+			}
+		}
+	}
+	OutCellIndices = UniqueIndices.Array();
+	OutCellIndices.Sort();
 }
 
 /* Applies a stable 64-bit avalanche mix. */

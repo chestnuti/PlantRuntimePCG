@@ -37,9 +37,14 @@ public:
 	/* Reports immutable candidates across all species. */
 	UFUNCTION(BlueprintPure, Category = "Adaptive Environment|M7")
 	int32 GetStableCandidateCount() const;
+	/* Collects unique row-major Cells containing at least one projected candidate. */
+	void GetOccupiedCellIndices(TArray<int32>& OutCellIndices) const;
 
-	/* Initializes the distribution from the shared Grid contract. */
-	void InitializeDistribution(const FIntPoint& GridDimensions, const FBox2D& GridBounds);
+	/* Initializes the distribution from the shared Grid and ecological ground contracts. */
+	void InitializeDistribution(
+		const FIntPoint& GridDimensions,
+		const FBox2D& GridBounds,
+		float GroundTraceHalfHeightCm);
 	/* Advances source Dirty, distribution Dirty, and active lifecycle Cells. */
 	void AdvanceM7(
 		const UAEAdaptiveEnvWorldSubsystem& Subsystem,
@@ -65,6 +70,8 @@ private:
 		TObjectPtr<UHierarchicalInstancedStaticMeshComponent> Instances = nullptr;
 		/* Stores the immutable maximum-density candidate pool. */
 		TArray<FAEM7CandidatePoint> Candidates;
+		/* Stores immutable visible transforms before runtime visibility scaling. */
+		TArray<FTransform> BaseWorldTransforms;
 		/* Stores mutable public state aligned one-to-one with candidates. */
 		TArray<FAEPlantInstanceSnapshot> Snapshots;
 		/* Marks candidates that have consumed their first effective M4/M5 input or intact baseline. */
@@ -90,6 +97,8 @@ private:
 	FIntPoint CachedGridDimensions = FIntPoint::ZeroValue;
 	/* Caches shared world XY bounds used by structural generation. */
 	FBox2D CachedGridBounds = FBox2D(EForceInit::ForceInit);
+	/* Caches the vertical ecological ground trace half-height in centimetres. */
+	float CachedGroundTraceHalfHeightCm = 0.0f;
 	/* Stores one owned runtime record per accepted species profile. */
 	TArray<FSpeciesRuntime> SpeciesRuntime;
 	/* Maps stable identities to species and candidate array indices. */

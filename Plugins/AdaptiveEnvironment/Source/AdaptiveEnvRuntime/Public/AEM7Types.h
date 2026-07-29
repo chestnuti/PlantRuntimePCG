@@ -51,6 +51,8 @@ struct ADAPTIVEENVRUNTIME_API FAEM7CandidatePoint
 	uint64 StablePointId = 0;
 	/* Stores the immutable candidate world position in centimetres. */
 	FVector Location = FVector::ZeroVector;
+	/* Stores the normalized ecological ground normal resolved during structural projection. */
+	FVector SurfaceNormal = FVector::UpVector;
 	/* Stores the row-major Grid Cell coordinate containing the point. */
 	FIntPoint CellCoordinate = FIntPoint::ZeroValue;
 	/* Stores the deterministic unit key used for nested density selection. */

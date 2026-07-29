@@ -151,6 +151,7 @@ void UAEAdaptiveEnvWorldSubsystem::Deinitialize()
 	ConstraintGrid.Reset();
 	ResponseGrid.Reset();
 	PathHeatmapGrid.Reset();
+	PendingM7BaselineCellIndices.Reset();
 	bM3Enabled = false;
 	bM4Enabled = false;
 	bM5Enabled = false;
@@ -357,6 +358,23 @@ void UAEAdaptiveEnvWorldSubsystem::UnregisterVegetationDistribution(
 	}
 }
 
+/* Queues only projected candidate Cells so M4/M5 establish a real baseline before M7 display. */
+void UAEAdaptiveEnvWorldSubsystem::RequestM7BaselineInitialization(
+	const UAEVegetationDistributionComponent* Distribution)
+{
+	check(IsInGameThread());
+	if (Distribution == nullptr)
+	{
+		return;
+	}
+	TArray<int32> OccupiedCellIndices;
+	Distribution->GetOccupiedCellIndices(OccupiedCellIndices);
+	for (const int32 CellIndex : OccupiedCellIndices)
+	{
+		PendingM7BaselineCellIndices.Add(CellIndex);
+	}
+}
+
 // Forward a world-position cell query to the owned behaviour grid.
 bool UAEAdaptiveEnvWorldSubsystem::GetBehaviourCellAtWorldLocation(const FVector& Location, FAEBehaviourCellSnapshot& OutSnapshot) const
 {
@@ -409,6 +427,14 @@ void UAEAdaptiveEnvWorldSubsystem::ResetBehaviourGrid()
 	ResponseGrid.Reset();
 	PathHeatmapGrid.Reset();
 	PendingM6VisualCommands.Reset();
+	PendingM7BaselineCellIndices.Reset();
+	for (const TWeakObjectPtr<UAEVegetationDistributionComponent>& Distribution : RegisteredVegetationDistributions)
+	{
+		if (Distribution.IsValid())
+		{
+			RequestM7BaselineInitialization(Distribution.Get());
+		}
+	}
 	M6VisualAccumulator = 0.0;
 	for (const TWeakObjectPtr<UAEPathHeatmapRendererComponent>& Renderer : RegisteredPathHeatmapRenderers)
 	{
@@ -498,6 +524,14 @@ bool UAEAdaptiveEnvWorldSubsystem::ApplyParameterBundle(UAEPublishedParameterBun
 	ResponseGrid.Reset();
 	PathHeatmapGrid.Reset();
 	PendingM6VisualCommands.Reset();
+	PendingM7BaselineCellIndices.Reset();
+	for (const TWeakObjectPtr<UAEVegetationDistributionComponent>& Distribution : RegisteredVegetationDistributions)
+	{
+		if (Distribution.IsValid())
+		{
+			RequestM7BaselineInitialization(Distribution.Get());
+		}
+	}
 	for (const TWeakObjectPtr<UAEPathHeatmapRendererComponent>& Renderer : RegisteredPathHeatmapRenderers)
 	{
 		if (Renderer.IsValid())
@@ -771,7 +805,10 @@ void UAEAdaptiveEnvWorldSubsystem::ApplyPendingRegistrations()
 			RegisteredVegetationDistributions.AddUnique(Distribution);
 			if (bM7Enabled)
 			{
-				Distribution->InitializeDistribution(GetGridDimensions(), GetGridWorldBounds());
+				Distribution->InitializeDistribution(
+					GetGridDimensions(),
+					GetGridWorldBounds(),
+					GetDefault<UAdaptiveEnvSettings>()->M4GroundTraceHalfHeightCm);
 			}
 		}
 	}
@@ -860,9 +897,12 @@ void UAEAdaptiveEnvWorldSubsystem::UpdateM4(const float StepSeconds)
 		return;
 	}
 
-	// Merge raw and M3 changes with Cells still waiting on an M4 transition.
+	// Merge raw, M3, and M7 baseline requests with Cells still waiting on an M4 transition.
 	TArray<int32> NewlyRelevant = BehaviourGrid.GetDirtyCellIndices();
 	for (const int32 Index : ExposureGrid.GetLastChangedCellIndices()) NewlyRelevant.AddUnique(Index);
+	for (const int32 Index : PendingM7BaselineCellIndices) NewlyRelevant.AddUnique(Index);
+	const int32 RequestedM7BaselineCount = PendingM7BaselineCellIndices.Num();
+	PendingM7BaselineCellIndices.Reset();
 	TArray<int32> CandidateIndices;
 	ConstraintGrid.BuildCandidateIndices(NewlyRelevant, CandidateIndices);
 	TArray<FAEWorldConstraintObservation> Observations;
@@ -894,6 +934,16 @@ void UAEAdaptiveEnvWorldSubsystem::UpdateM4(const float StepSeconds)
 		bM6Enabled = false;
 		bM7Enabled = false;
 		UE_LOG(LogAdaptiveEnv, Error, TEXT("M4 update failed; M4 and dependent M5/M6 were disabled. World=%s"), *GetNameSafe(World));
+	}
+	else if (RequestedM7BaselineCount > 0)
+	{
+		UE_LOG(
+			LogAdaptiveEnv,
+			Log,
+			TEXT("M7 baseline environment initialized. World=%s RequestedCells=%d ValidObservations=%d"),
+			*GetNameSafe(World),
+			RequestedM7BaselineCount,
+			Observations.Num());
 	}
 }
 

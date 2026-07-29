@@ -5,7 +5,11 @@
 #include "AEPlantBiomeMapAsset.h"
 #include "AEPlantDistributionService.h"
 #include "AEPlantSpeciesProfile.h"
+#include "AEWorldConstraintProvider.h"
 #include "AEM7Types.h"
+#include "Components/BoxComponent.h"
+#include "Engine/World.h"
+#include "GameFramework/Actor.h"
 
 namespace AdaptiveEnvM7Tests
 {
@@ -160,6 +164,111 @@ bool FAEM7FirstEvaluationHealthInputTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FAEM7OccupiedCellBaselineTest,
+	"AdaptiveEnv.M7.Baseline.OccupiedCellsOnly",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+/* Verifies M7 baseline requests include every occupied Cell once without expanding to the full Grid. */
+bool FAEM7OccupiedCellBaselineTest::RunTest(const FString& Parameters)
+{
+	// Arrange duplicate candidate coverage and one invalid coordinate.
+	TArray<FAEM7CandidatePoint> Candidates;
+	Candidates.AddDefaulted(4);
+	Candidates[0].CellCoordinate = FIntPoint(2, 1);
+	Candidates[1].CellCoordinate = FIntPoint(0, 0);
+	Candidates[2].CellCoordinate = FIntPoint(2, 1);
+	Candidates[3].CellCoordinate = FIntPoint(-1, 0);
+
+	// Collect stable row-major indices for a four-by-three Grid.
+	TArray<int32> OccupiedCellIndices;
+	FAEPlantDistributionService::CollectOccupiedCellIndices(
+		Candidates,
+		FIntPoint(4, 3),
+		OccupiedCellIndices);
+
+	// Assert unique ascending coverage and exclusion of unused or invalid Cells.
+	TestEqual(TEXT("Only two valid occupied Cells are requested"), OccupiedCellIndices.Num(), 2);
+	if (OccupiedCellIndices.Num() == 2)
+	{
+		TestEqual(TEXT("First occupied Cell is row-major zero"), OccupiedCellIndices[0], 0);
+		TestEqual(TEXT("Second occupied Cell is row-major six"), OccupiedCellIndices[1], 6);
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FAEM7GroundProjectionTraceTest,
+	"AdaptiveEnv.M7.GroundProjection.ApprovedSurface",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+/* Verifies M7 ground projection skips unauthorized blockers and resolves approved surface height. */
+bool FAEM7GroundProjectionTraceTest::RunTest(const FString& Parameters)
+{
+	// Create an isolated physics World with one unauthorized blocker above tagged ground.
+	const FName WorldName = MakeUniqueObjectName(
+		GetTransientPackage(),
+		UWorld::StaticClass(),
+		TEXT("AE_M7_GroundProjectionWorld"));
+	UWorld* World = UWorld::CreateWorld(EWorldType::Game, false, WorldName, GetTransientPackage(), true);
+	TestNotNull(TEXT("Temporary World"), World);
+	if (World == nullptr)
+	{
+		return false;
+	}
+
+	AActor* GroundActor = World->SpawnActor<AActor>();
+	UBoxComponent* Ground = NewObject<UBoxComponent>(GroundActor);
+	GroundActor->SetRootComponent(Ground);
+	Ground->InitBoxExtent(FVector(200.0, 200.0, 50.0));
+	Ground->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+	Ground->SetCollisionObjectType(ECC_WorldStatic);
+	Ground->SetCollisionResponseToAllChannels(ECR_Block);
+	Ground->ComponentTags.Add(FAEWorldConstraintProvider::EnvironmentGroundTag);
+	Ground->RegisterComponent();
+	GroundActor->SetActorLocation(FVector(0.0, 0.0, 200.0));
+
+	AActor* BlockerActor = World->SpawnActor<AActor>();
+	UBoxComponent* Blocker = NewObject<UBoxComponent>(BlockerActor);
+	BlockerActor->SetRootComponent(Blocker);
+	Blocker->InitBoxExtent(FVector(100.0, 100.0, 50.0));
+	Blocker->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+	Blocker->SetCollisionObjectType(ECC_WorldDynamic);
+	Blocker->SetCollisionResponseToAllChannels(ECR_Block);
+	Blocker->RegisterComponent();
+	BlockerActor->SetActorLocation(FVector(0.0, 0.0, 400.0));
+	World->UpdateWorldComponents(false, false);
+
+	// Resolve the tagged lower surface after the untagged upper blocker is rejected.
+	FAEGroundSurfaceSample Surface;
+	TestTrue(
+		TEXT("Approved ground is found below an unauthorized blocker"),
+		FAEWorldConstraintProvider::TraceGroundSurface(
+			*World,
+			FVector::ZeroVector,
+			1000.0f,
+			nullptr,
+			Surface));
+	TestTrue(TEXT("Projected height matches the tagged box top"), FMath::IsNearlyEqual(Surface.WorldLocation.Z, 250.0, 0.1));
+	TestTrue(TEXT("Projected normal is world up"), Surface.WorldNormal.Equals(FVector::UpVector, 1.0e-6f));
+
+	// Ignore the only approved ground owner and verify no fallback plane is fabricated.
+	FAEGroundSurfaceSample IgnoredSurface;
+	TestFalse(
+		TEXT("Ignored approved owner leaves no valid ground"),
+		FAEWorldConstraintProvider::TraceGroundSurface(
+			*World,
+			FVector::ZeroVector,
+			1000.0f,
+			GroundActor,
+			IgnoredSurface));
+
+	// Destroy the transient World after collision assertions complete.
+	World->DestroyWorld(false);
+	World->RemoveFromRoot();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FAEM7SpeciesCollisionDefaultsTest,
 	"AdaptiveEnv.M7.Profile.CollisionDefaults",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -172,7 +281,9 @@ bool FAEM7SpeciesCollisionDefaultsTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("Collision profile defaults to NoCollision"), Profile->CollisionProfileName, FName(TEXT("NoCollision")));
 	TestFalse(TEXT("Overlap events default off"), Profile->bGenerateOverlapEvents);
 	TestFalse(TEXT("Navigation effect defaults off"), Profile->bCanEverAffectNavigation);
-	TestEqual(TEXT("New profile semantic version"), Profile->SemanticVersion, FString(TEXT("1.1.0")));
+	TestTrue(TEXT("Ground offset defaults to zero"), FMath::IsNearlyZero(Profile->GroundOffsetCm));
+	TestFalse(TEXT("Ground normal alignment defaults off"), Profile->bAlignToGroundNormal);
+	TestEqual(TEXT("New profile semantic version"), Profile->SemanticVersion, FString(TEXT("1.2.0")));
 	return true;
 }
 

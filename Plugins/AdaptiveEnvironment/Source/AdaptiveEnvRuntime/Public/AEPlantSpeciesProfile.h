@@ -19,9 +19,15 @@ public:
 	/* Stores the immutable research profile identity. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Identity") FGuid ProfileId;
 	/* Stores the semantic profile version. */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Identity") FString SemanticVersion = TEXT("1.1.0");
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Identity") FString SemanticVersion = TEXT("1.2.0");
 	/* Supplies the mesh owned by the runtime HISM. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Visual") TSoftObjectPtr<UStaticMesh> StaticMesh;
+	/* Offsets each instance anchor along the projected ground normal in centimetres. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Placement", meta = (ClampMin = "-10000.0", ClampMax = "10000.0"))
+	float GroundOffsetCm = 0.0f;
+	/* Aligns the instance local up axis to the projected ground normal before stable yaw. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Placement")
+	bool bAlignToGroundNormal = false;
 	/* Selects whether this species participates in collision queries or physics. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Visual|Collision")
 	TEnumAsByte<ECollisionEnabled::Type> CollisionEnabled = ECollisionEnabled::NoCollision;
