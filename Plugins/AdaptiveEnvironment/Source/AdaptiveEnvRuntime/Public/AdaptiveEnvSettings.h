@@ -38,6 +38,10 @@ public:
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "M6")
 	bool bEnableM6 = true;
 
+	/* Enables deterministic M7 vegetation distribution when M4 and M5 are active. */
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "M7")
+	bool bEnableM7 = true;
+
 	/* References the single published bundle that atomically supplies M3, M4, and M5 parameters. */
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Parameters")
 	TSoftObjectPtr<UAEPublishedParameterBundleAsset> ParameterBundle;
@@ -150,6 +154,10 @@ public:
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "M6|Renderer", meta = (ClampMin = "1"))
 	int32 M6MaxVisualCommandsPerFrame = 1024;
 
+	/* Limits M7 instance custom-data and transform writes per registered component and frame. */
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "M7|Renderer", meta = (ClampMin = "1"))
+	int32 M7MaxInstanceUpdatesPerFrame = 2048;
+
 	/* Names the Landscape texture parameter that receives the M6 Render Target. */
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "M6|Material")
 	FName M6PathTextureParameterName = TEXT("AE_PathHeatmapTexture");
@@ -168,5 +176,5 @@ public:
 
 	/* Identifies the serialized settings schema version. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Version")
-	int32 SettingsSchemaVersion = 9;
+	int32 SettingsSchemaVersion = 10;
 };

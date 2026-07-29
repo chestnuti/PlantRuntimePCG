@@ -50,7 +50,7 @@ bool FAESettingsDefaultsTest::RunTest(const FString& Parameters)
 	TestTrue(
 		TEXT("Optional parameter bundle path is syntactically valid"),
 		Settings->ParameterBundle.IsNull() || Settings->ParameterBundle.ToSoftObjectPath().IsValid());
-	TestEqual(TEXT("Settings schema"), Settings->SettingsSchemaVersion, 9);
+	TestEqual(TEXT("Settings schema"), Settings->SettingsSchemaVersion, 10);
 	TestEqual(TEXT("M6 visible threshold"), Settings->M6VisibleDamageThresholdRatio, 0.15f);
 	TestEqual(TEXT("M6 full-path threshold"), Settings->M6FullPathDamageThresholdRatio, 0.65f);
 	TestEqual(TEXT("M6 formation rate"), Settings->M6FormationRatePerSimulationHour, 0.20f);

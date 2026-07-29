@@ -3,7 +3,17 @@
 #include "CoreMinimal.h"
 
 class UAEMoistureSourceComponent;
+class AActor;
 class UWorld;
+
+/* Stores one validated ecological ground hit in world space. */
+struct ADAPTIVEENVRUNTIME_API FAEGroundSurfaceSample
+{
+	/* Stores the accepted ground impact location in world centimetres. */
+	FVector WorldLocation = FVector::ZeroVector;
+	/* Stores the normalized accepted ground surface normal. */
+	FVector WorldNormal = FVector::UpVector;
+};
 
 /* Stores one validated Game Thread environment observation for an M4 Cell. */
 struct ADAPTIVEENVRUNTIME_API FAEWorldConstraintObservation
@@ -24,6 +34,17 @@ struct ADAPTIVEENVRUNTIME_API FAEWorldConstraintObservation
 class ADAPTIVEENVRUNTIME_API FAEWorldConstraintProvider
 {
 public:
+	/* Names the Component or Actor tag that authorizes an ecological ground surface. */
+	static const FName EnvironmentGroundTag;
+	/* Reports whether one hit has a finite ground normal and an approved ground identity. */
+	static bool IsValidGroundHit(const FHitResult& Hit);
+	/* Traces one world XY point and returns only an approved ecological ground surface. */
+	static bool TraceGroundSurface(
+		UWorld& World,
+		const FVector& TraceCenter,
+		float TraceHalfHeightCm,
+		const AActor* IgnoredActor,
+		FAEGroundSurfaceSample& OutSample);
 	/* Samples one Cell on the Game Thread and returns false without partial output on failure. */
 	static bool SampleCell(
 		UWorld& World,
