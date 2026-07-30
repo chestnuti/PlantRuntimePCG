@@ -42,6 +42,10 @@ public:
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "M7")
 	bool bEnableM7 = true;
 
+	/* Enables registered M8 representative plants, including manual fallback mode. */
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "M8")
+	bool bEnableM8 = true;
+
 	/* References the single published bundle that atomically supplies M3, M4, and M5 parameters. */
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Parameters")
 	TSoftObjectPtr<UAEPublishedParameterBundleAsset> ParameterBundle;
@@ -158,6 +162,10 @@ public:
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "M7|Renderer", meta = (ClampMin = "1"))
 	int32 M7MaxInstanceUpdatesPerFrame = 2048;
 
+	/* Caps registered representative M8 plants advanced per fixed step. */
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "M8", meta = (ClampMin = "1", ClampMax = "32"))
+	int32 M8MaxPlantsPerStep = 5;
+
 	/* Names the Landscape texture parameter that receives the M6 Render Target. */
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "M6|Material")
 	FName M6PathTextureParameterName = TEXT("AE_PathHeatmapTexture");
@@ -176,5 +184,5 @@ public:
 
 	/* Identifies the serialized settings schema version. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Version")
-	int32 SettingsSchemaVersion = 10;
+	int32 SettingsSchemaVersion = 11;
 };

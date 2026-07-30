@@ -13,6 +13,7 @@
 
 class UAEBehaviourTrackerComponent;
 class UAEHeatmapRendererComponent;
+class UAELSystemPlantComponent;
 class UAEMoistureSourceComponent;
 class UAEPathHeatmapRendererComponent;
 class UAEVegetationDistributionComponent;
@@ -79,6 +80,10 @@ public:
 	void RegisterVegetationDistribution(UAEVegetationDistributionComponent* Distribution);
 	/* Queues one M7 vegetation distribution for safe removal. */
 	void UnregisterVegetationDistribution(UAEVegetationDistributionComponent* Distribution);
+	/* Queues one M8 representative plant for safe registration. */
+	void RegisterLSystemPlant(UAELSystemPlantComponent* Plant);
+	/* Queues one M8 representative plant for safe removal. */
+	void UnregisterLSystemPlant(UAELSystemPlantComponent* Plant);
 	/* Queues occupied M7 Cells for one authoritative M4/M5 baseline pass. */
 	void RequestM7BaselineInitialization(const UAEVegetationDistributionComponent* Distribution);
 
@@ -178,6 +183,9 @@ public:
 	/* Returns whether M7 vegetation distribution is enabled. */
 	UFUNCTION(BlueprintPure, Category = "Adaptive Environment|M7")
 	bool IsM7Enabled() const { return bM7Enabled; }
+	/* Returns whether registered M8 representative plants are enabled. */
+	UFUNCTION(BlueprintPure, Category = "Adaptive Environment|M8")
+	bool IsM8Enabled() const { return bM8Enabled; }
 	/* Provides M8 and gameplay systems with immutable per-plant state. */
 	UFUNCTION(BlueprintPure, Category = "Adaptive Environment|M7")
 	bool GetM7PlantInstanceState(int64 StablePointId, FAEPlantInstanceSnapshot& OutSnapshot) const;
@@ -214,6 +222,8 @@ private:
 	void UpdateM6(float StepSeconds);
 	/* Derives M7 from the same committed M5 work set without consuming M6 output. */
 	void UpdateM7(float StepSeconds);
+	/* Resolves M8 visual state after M7 commits without rebuilding fixed geometry. */
+	void UpdateM8();
 	/* Applies bounded per-instance custom-data and transform changes. */
 	void UpdateM7VisualAdapters();
 	/* Applies queued M6 commands through registered renderers at a bounded rate. */
@@ -259,6 +269,8 @@ private:
 	bool bM6Enabled = false;
 	/* Controls self-owned M7 distributions when M4 and M5 are available. */
 	bool bM7Enabled = false;
+	/* Controls registered M8 representative plants independently from M7 availability. */
+	bool bM8Enabled = false;
 	/* Stores the validated effective M6 parameter snapshot for this World. */
 	FAEM6ParameterSet M6Parameters;
 	/* Counts failed M4 World samples retained by fail-closed submission. */
@@ -307,6 +319,12 @@ private:
 	TArray<TWeakObjectPtr<UAEVegetationDistributionComponent>> RegisteredVegetationDistributions;
 	TArray<TWeakObjectPtr<UAEVegetationDistributionComponent>> PendingVegetationDistributionAdds;
 	TArray<TWeakObjectPtr<UAEVegetationDistributionComponent>> PendingVegetationDistributionRemoves;
+	/* Stores active non-owning M8 representative plant registrations. */
+	TArray<TWeakObjectPtr<UAELSystemPlantComponent>> RegisteredLSystemPlants;
+	/* Stores M8 plants awaiting safe registration. */
+	TArray<TWeakObjectPtr<UAELSystemPlantComponent>> PendingLSystemPlantAdds;
+	/* Stores M8 plants awaiting safe removal. */
+	TArray<TWeakObjectPtr<UAELSystemPlantComponent>> PendingLSystemPlantRemoves;
 	/* Stores unique row-major M7 Cells awaiting their first authoritative M4 sample. */
 	TSet<int32> PendingM7BaselineCellIndices;
 	/* Stores active registered M4 moisture sources. */

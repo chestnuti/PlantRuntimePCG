@@ -12,7 +12,10 @@ public class AdaptiveEnvRuntime : ModuleRules
 			"CoreUObject",
 			"Engine",
 			"DeveloperSettings",
-			"GameplayTags"
+			"GameplayTags",
+			"GeometryFramework",
+			"GeometryCore",
+			"Niagara"
 		});
 
 		PrivateDependencyModuleNames.AddRange(new[]

@@ -4,6 +4,7 @@
 #include "AEHeatmapRendererComponent.h"
 #include "AEPathHeatmapRendererComponent.h"
 #include "AEVegetationDistributionComponent.h"
+#include "AELSystemPlantComponent.h"
 #include "AEMoistureSourceComponent.h"
 #include "AEWorldConstraintProvider.h"
 #include "AEParameterBundleService.h"
@@ -71,6 +72,7 @@ void UAEAdaptiveEnvWorldSubsystem::Initialize(FSubsystemCollectionBase& Collecti
 	bM5Enabled = false;
 	bM6Enabled = false;
 	bM7Enabled = false;
+	bM8Enabled = bRuntimeEnabled && Settings->bEnableM8;
 	if (bRuntimeEnabled && (Settings->bEnableM3 || Settings->bEnableM4 || Settings->bEnableM5))
 	{
 		UAEPublishedParameterBundleAsset* Bundle = Settings->ParameterBundle.LoadSynchronous();
@@ -138,6 +140,9 @@ void UAEAdaptiveEnvWorldSubsystem::Deinitialize()
 	RegisteredVegetationDistributions.Reset();
 	PendingVegetationDistributionAdds.Reset();
 	PendingVegetationDistributionRemoves.Reset();
+	RegisteredLSystemPlants.Reset();
+	PendingLSystemPlantAdds.Reset();
+	PendingLSystemPlantRemoves.Reset();
 	RegisteredMoistureSources.Reset();
 	PendingMoistureSourceAdds.Reset();
 	PendingMoistureSourceRemoves.Reset();
@@ -157,6 +162,7 @@ void UAEAdaptiveEnvWorldSubsystem::Deinitialize()
 	bM5Enabled = false;
 	bM6Enabled = false;
 	bM7Enabled = false;
+	bM8Enabled = false;
 	Super::Deinitialize();
 }
 
@@ -194,6 +200,7 @@ void UAEAdaptiveEnvWorldSubsystem::Tick(float DeltaTime)
 		UpdateM5(BehaviourStepSeconds);
 		UpdateM6(BehaviourStepSeconds);
 		UpdateM7(BehaviourStepSeconds);
+		UpdateM8();
 		AccumulateDebugActiveCells();
 		++ProcessedBehaviourStepCount;
 	}
@@ -355,6 +362,26 @@ void UAEAdaptiveEnvWorldSubsystem::UnregisterVegetationDistribution(
 	if (Distribution != nullptr)
 	{
 		PendingVegetationDistributionRemoves.AddUnique(Distribution);
+	}
+}
+
+/* Queue one M8 representative plant for registration at the next safe boundary. */
+void UAEAdaptiveEnvWorldSubsystem::RegisterLSystemPlant(UAELSystemPlantComponent* Plant)
+{
+	if (IsValid(Plant))
+	{
+		PendingLSystemPlantAdds.AddUnique(Plant);
+		PendingLSystemPlantRemoves.Remove(Plant);
+	}
+}
+
+/* Queue one M8 representative plant for removal at the next safe boundary. */
+void UAEAdaptiveEnvWorldSubsystem::UnregisterLSystemPlant(UAELSystemPlantComponent* Plant)
+{
+	if (Plant != nullptr)
+	{
+		PendingLSystemPlantRemoves.AddUnique(Plant);
+		PendingLSystemPlantAdds.Remove(Plant);
 	}
 }
 
@@ -813,6 +840,23 @@ void UAEAdaptiveEnvWorldSubsystem::ApplyPendingRegistrations()
 		}
 	}
 	PendingVegetationDistributionAdds.Reset();
+
+	// Apply M8 removals before additions so fixed-step visual reads use one stable array.
+	for (const TWeakObjectPtr<UAELSystemPlantComponent>& Plant : PendingLSystemPlantRemoves)
+	{
+		RegisteredLSystemPlants.Remove(Plant);
+	}
+	PendingLSystemPlantRemoves.Reset();
+	RegisteredLSystemPlants.RemoveAll(
+		[](const TWeakObjectPtr<UAELSystemPlantComponent>& Item) { return !Item.IsValid(); });
+	for (const TWeakObjectPtr<UAELSystemPlantComponent>& Plant : PendingLSystemPlantAdds)
+	{
+		if (Plant.IsValid())
+		{
+			RegisteredLSystemPlants.AddUnique(Plant);
+		}
+	}
+	PendingLSystemPlantAdds.Reset();
 }
 
 // Pull one sample from each valid tracker at the shared fixed time.
@@ -969,6 +1013,28 @@ void UAEAdaptiveEnvWorldSubsystem::UpdateM7(const float StepSeconds)
 				DistributionDirty,
 				DeltaSimulationHours,
 				CurrentStep);
+		}
+	}
+}
+
+/* Resolve registered M8 lifecycle visuals after M7 without modifying fixed mesh topology. */
+void UAEAdaptiveEnvWorldSubsystem::UpdateM8()
+{
+	if (!bM8Enabled)
+	{
+		return;
+	}
+	const int32 Budget = FMath::Max(GetDefault<UAdaptiveEnvSettings>()->M8MaxPlantsPerStep, 1);
+	int32 AppliedCount = 0;
+	for (const TWeakObjectPtr<UAELSystemPlantComponent>& Plant : RegisteredLSystemPlants)
+	{
+		if (Plant.IsValid())
+		{
+			Plant->AdvanceM8(*this);
+			if (++AppliedCount >= Budget)
+			{
+				break;
+			}
 		}
 	}
 }
