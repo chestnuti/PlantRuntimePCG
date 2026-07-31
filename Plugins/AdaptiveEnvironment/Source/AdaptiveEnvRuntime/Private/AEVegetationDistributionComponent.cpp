@@ -438,6 +438,26 @@ bool UAEVegetationDistributionComponent::GetPlantInstanceState(
 	return true;
 }
 
+/* Copy all current M7 snapshots into one deterministic Blueprint-facing array. */
+void UAEVegetationDistributionComponent::GetPlantInstanceStates(
+	TArray<FAEPlantInstanceSnapshot>& OutSnapshots) const
+{
+	OutSnapshots.Reset();
+
+	// Flatten species-owned snapshots without exposing mutable runtime storage.
+	for (const FSpeciesRuntime& Runtime : SpeciesRuntime)
+	{
+		OutSnapshots.Append(Runtime.Snapshots);
+	}
+
+	// Keep Blueprint selection stable across species and registration order.
+	OutSnapshots.Sort(
+		[](const FAEPlantInstanceSnapshot& A, const FAEPlantInstanceSnapshot& B)
+		{
+			return A.StablePointId < B.StablePointId;
+		});
+}
+
 /* Counts immutable candidates across all configured species. */
 int32 UAEVegetationDistributionComponent::GetStableCandidateCount() const
 {

@@ -3,6 +3,7 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "AELSystemGenerator.h"
+#include "AELSystemPlantComponent.h"
 #include "AELSystemRuleAsset.h"
 
 namespace AdaptiveEnvM8Tests
@@ -66,6 +67,34 @@ bool FAEM8ManualGenerationHasNoUpstreamInputTest::RunTest(const FString& Paramet
 	TestTrue(TEXT("Standalone generation creates branches"), Plant.BranchSegments.Num() > 0);
 	TestTrue(TEXT("Standalone generation creates fixed mesh modules"), Plant.ModuleMeshes.Num() > 0);
 	TestTrue(TEXT("Standalone generation creates triangles"), Plant.ModuleMeshes[0].Triangles.Num() > 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FAEM8SnapshotBindingAvoidsManualIdentityTest,
+	"AdaptiveEnv.M8.Integration.SnapshotBindingAvoidsManualIdentity",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+/* Verify Blueprint can bind a selected M7 snapshot without extracting its stable identity. */
+bool FAEM8SnapshotBindingAvoidsManualIdentityTest::RunTest(const FString& Parameters)
+{
+	UAELSystemPlantComponent* Component = NewObject<UAELSystemPlantComponent>();
+	FAEPlantInstanceSnapshot Snapshot;
+	Snapshot.StablePointId = 42;
+	Snapshot.HealthRatio = 0.45f;
+	Snapshot.LifecycleProgressRatio = 0.30f;
+	Snapshot.LifecycleState = EAEPlantLifecycleState::Declining;
+	Snapshot.bVisible = true;
+
+	FString Error;
+	TestTrue(TEXT("Valid M7 snapshot binds"), Component->BindToM7PlantSnapshot(Snapshot, false, Error));
+	TestTrue(TEXT("Successful binding clears error"), Error.IsEmpty());
+	TestEqual(TEXT("Input mode becomes M7-driven"), Component->InputMode, EAELSystemInputMode::M7Driven);
+	TestEqual(TEXT("Stable identity is copied internally"), Component->SourceStablePointId, int64(42));
+
+	Snapshot.StablePointId = 0;
+	TestFalse(TEXT("Snapshot without an internal identity is rejected"), Component->BindToM7PlantSnapshot(Snapshot, false, Error));
+	TestTrue(TEXT("Rejected snapshot reports a diagnostic"), !Error.IsEmpty());
 	return true;
 }
 

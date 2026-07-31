@@ -1,7 +1,7 @@
 {
 	"FileVersion": 3,
-	"Version": 12,
-	"VersionName": "0.9.1",
+	"Version": 13,
+	"VersionName": "0.9.2",
 	"FriendlyName": "Adaptive Environment",
 	"Description": "Runtime adaptive environment systems driven by player behaviour.",
 	"Category": "Procedural Content Generation",

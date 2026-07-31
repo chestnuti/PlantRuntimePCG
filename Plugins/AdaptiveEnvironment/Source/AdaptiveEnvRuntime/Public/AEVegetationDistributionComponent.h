@@ -34,6 +34,9 @@ public:
 	/* Resolves one M8-facing immutable instance snapshot. */
 	UFUNCTION(BlueprintPure, Category = "Adaptive Environment|M7")
 	bool GetPlantInstanceState(int64 StablePointId, FAEPlantInstanceSnapshot& OutSnapshot) const;
+	/* Returns every M7 snapshot sorted by stable identity for Blueprint selection. */
+	UFUNCTION(BlueprintCallable, Category = "Adaptive Environment|M7")
+	void GetPlantInstanceStates(TArray<FAEPlantInstanceSnapshot>& OutSnapshots) const;
 	/* Reports immutable candidates across all species. */
 	UFUNCTION(BlueprintPure, Category = "Adaptive Environment|M7")
 	int32 GetStableCandidateCount() const;

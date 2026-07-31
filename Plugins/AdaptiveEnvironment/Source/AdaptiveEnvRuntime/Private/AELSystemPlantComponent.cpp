@@ -107,6 +107,45 @@ void UAELSystemPlantComponent::ClearGeneratedPlant()
 	bGenerated = false;
 }
 
+/* Bind one immutable M7 snapshot and optionally rebuild using its internal stable identity. */
+bool UAELSystemPlantComponent::BindToM7PlantSnapshot(
+	const FAEPlantInstanceSnapshot& Snapshot,
+	const bool bRegenerate,
+	FString& OutError)
+{
+	OutError.Reset();
+	if (Snapshot.StablePointId <= 0
+		|| !FMath::IsFinite(Snapshot.HealthRatio)
+		|| !FMath::IsFinite(Snapshot.LifecycleProgressRatio))
+	{
+		OutError = TEXT("M8 requires a valid M7 plant snapshot.");
+		return false;
+	}
+
+	// Store the internal lookup identity while keeping it out of the Blueprint binding chain.
+	SourceStablePointId = Snapshot.StablePointId;
+	InputMode = EAELSystemInputMode::M7Driven;
+	if (bRegenerate && !GeneratePreview(OutError))
+	{
+		return false;
+	}
+
+	// Apply the selected snapshot immediately; later fixed steps continue through the subsystem lookup.
+	if (bGenerated)
+	{
+		FAELSystemResolvedPlantState State;
+		State.StablePointId = Snapshot.StablePointId;
+		State.SpeciesId = Snapshot.SpeciesId;
+		State.HealthRatio = FMath::Clamp(Snapshot.HealthRatio, 0.0f, 1.0f);
+		State.LifecycleState = Snapshot.LifecycleState;
+		State.LifecycleProgressRatio = FMath::Clamp(Snapshot.LifecycleProgressRatio, 0.0f, 1.0f);
+		State.bVisible = Snapshot.bVisible;
+		State.SourceSimulationStep = Snapshot.SimulationStep;
+		ApplyResolvedVisualState(State);
+	}
+	return true;
+}
+
 /* Detach one prebuilt module, enable its simplified rigid body, and shed every attached leaf. */
 bool UAELSystemPlantComponent::BreakBranchModule(const int64 BranchModuleId)
 {

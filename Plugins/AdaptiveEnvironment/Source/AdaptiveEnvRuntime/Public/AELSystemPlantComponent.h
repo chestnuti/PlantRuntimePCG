@@ -63,6 +63,12 @@ public:
 	/* Clears all initialized mesh, collision, material, leaf, and structural state. */
 	UFUNCTION(BlueprintCallable, CallInEditor, Category = "Adaptive Environment|M8")
 	void ClearGeneratedPlant();
+	/* Binds one selected M7 snapshot without requiring Blueprint to handle its stable identity. */
+	UFUNCTION(BlueprintCallable, Category = "Adaptive Environment|M8")
+	bool BindToM7PlantSnapshot(
+		const FAEPlantInstanceSnapshot& Snapshot,
+		bool bRegenerate,
+		FString& OutError);
 	/* Detaches one initialized hard-branch module and preserves its broken state. */
 	UFUNCTION(BlueprintCallable, Category = "Adaptive Environment|M8")
 	bool BreakBranchModule(int64 BranchModuleId);
@@ -135,4 +141,3 @@ private:
 	/* Reports whether one fixed generated plant is active. */
 	bool bGenerated = false;
 };
-
