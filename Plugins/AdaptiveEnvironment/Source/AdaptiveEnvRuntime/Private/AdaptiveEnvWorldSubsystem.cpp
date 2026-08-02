@@ -17,6 +17,8 @@
 #include "AdaptiveEnvGameplayTags.h"
 #include "AdaptiveEnvLog.h"
 #include "AdaptiveEnvSettings.h"
+#include "Engine/World.h"
+#include "GameFramework/Actor.h"
 
 // Initialize one ordered runtime pipeline for the current World.
 void UAEAdaptiveEnvWorldSubsystem::Initialize(FSubsystemCollectionBase& Collection)
@@ -149,6 +151,16 @@ void UAEAdaptiveEnvWorldSubsystem::Deinitialize()
 	RegisteredRepresentativePlantManagers.Reset();
 	PendingRepresentativePlantManagerAdds.Reset();
 	PendingRepresentativePlantManagerRemoves.Reset();
+	for (AActor* PoolActor : M8ManagedPoolActors)
+	{
+		if (IsValid(PoolActor))
+		{
+			PoolActor->Destroy();
+		}
+	}
+	M8ManagedPoolActors.Reset();
+	M8AvailablePoolActorsByClass.Reset();
+	M8PersistentPlantStates.Reset();
 	M8UpdateCursor = 0;
 	RegisteredMoistureSources.Reset();
 	PendingMoistureSourceAdds.Reset();
@@ -413,6 +425,200 @@ void UAEAdaptiveEnvWorldSubsystem::UnregisterRepresentativePlantManager(
 		PendingRepresentativePlantManagerRemoves.AddUnique(Manager);
 		PendingRepresentativePlantManagerAdds.Remove(Manager);
 	}
+}
+
+/* Create clean available shells until one class reaches its requested prewarm count. */
+void UAEAdaptiveEnvWorldSubsystem::EnsureM8PoolPrewarmed(
+	const TSubclassOf<AActor> ActorClass,
+	const int32 PrewarmCount,
+	const int32 PoolCapacity,
+	AActor* Owner)
+{
+	if (ActorClass == nullptr || PrewarmCount <= 0 || PoolCapacity <= 0)
+	{
+		return;
+	}
+	const int32 TargetCount = FMath::Min(PrewarmCount, PoolCapacity);
+	int32 ResidentCount = 0;
+	for (AActor* Actor : M8ManagedPoolActors)
+	{
+		ResidentCount += IsValid(Actor) && Actor->GetClass() == ActorClass.Get() ? 1 : 0;
+	}
+	while (ResidentCount < TargetCount)
+	{
+		FString Error;
+		AActor* Actor = SpawnM8PoolActor(ActorClass, Owner, Error);
+		if (Actor == nullptr)
+		{
+			UE_LOG(LogAdaptiveEnv, Warning, TEXT("M8 pool prewarm failed. Class=%s Error=%s"), *GetNameSafe(ActorClass), *Error);
+			break;
+		}
+		M8AvailablePoolActorsByClass.FindOrAdd(TObjectKey<UClass>(ActorClass.Get())).Add(Actor);
+		++ResidentCount;
+	}
+}
+
+/* Acquire one clean actor shell without exceeding the exact-class resident cap. */
+AActor* UAEAdaptiveEnvWorldSubsystem::AcquireM8PooledActor(
+	const TSubclassOf<AActor> ActorClass,
+	const int32 PoolCapacity,
+	AActor* Owner,
+	FString& OutError)
+{
+	OutError.Reset();
+	if (ActorClass == nullptr || PoolCapacity <= 0)
+	{
+		OutError = TEXT("M8 pool requires an actor class and positive capacity.");
+		return nullptr;
+	}
+	TArray<TWeakObjectPtr<AActor>>& Available = M8AvailablePoolActorsByClass.FindOrAdd(TObjectKey<UClass>(ActorClass.Get()));
+	while (!Available.IsEmpty())
+	{
+		if (AActor* Actor = Available.Pop(EAllowShrinking::No).Get())
+		{
+			return Actor;
+		}
+	}
+
+	int32 ResidentCount = 0;
+	for (AActor* Actor : M8ManagedPoolActors)
+	{
+		ResidentCount += IsValid(Actor) && Actor->GetClass() == ActorClass.Get() ? 1 : 0;
+	}
+	if (ResidentCount >= PoolCapacity)
+	{
+		OutError = TEXT("M8 pool capacity is occupied by active or debris-waiting actors.");
+		return nullptr;
+	}
+	return SpawnM8PoolActor(ActorClass, Owner, OutError);
+}
+
+/* Return one clean actor shell only after its detached branch geometry has expired. */
+bool UAEAdaptiveEnvWorldSubsystem::ReturnM8PooledActor(AActor* Actor)
+{
+	if (!IsValid(Actor) || !M8ManagedPoolActors.Contains(Actor))
+	{
+		return false;
+	}
+	UAELSystemPlantComponent* Plant = Actor->FindComponentByClass<UAELSystemPlantComponent>();
+	if (Plant == nullptr || !Plant->PrepareForPool())
+	{
+		return false;
+	}
+	UnregisterLSystemPlant(Plant);
+	M8AvailablePoolActorsByClass.FindOrAdd(TObjectKey<UClass>(Actor->GetClass())).AddUnique(Actor);
+	return true;
+}
+
+/* Persist one broken module before its actor-owned physics presentation changes. */
+void UAEAdaptiveEnvWorldSubsystem::RecordM8BrokenBranch(
+	const int64 StablePointId,
+	const FName SpeciesId,
+	const int64 RuleContentHash,
+	const int32 GenerationSeed,
+	const int64 BranchModuleId)
+{
+	if (StablePointId <= 0 || BranchModuleId <= 0)
+	{
+		return;
+	}
+	FAEM8PersistentPlantState& State = M8PersistentPlantStates.FindOrAdd(StablePointId);
+	State.StablePointId = StablePointId;
+	State.SpeciesId = SpeciesId;
+	State.RuleContentHash = RuleContentHash;
+	State.GenerationSeed = GenerationSeed;
+	State.BrokenBranchModuleIds.AddUnique(BranchModuleId);
+	State.BrokenBranchModuleIds.Sort();
+}
+
+/* Persist one irreversible dead-wood module independently from M7 recovery. */
+void UAEAdaptiveEnvWorldSubsystem::RecordM8DeadWoodBranch(
+	const int64 StablePointId,
+	const FName SpeciesId,
+	const int64 RuleContentHash,
+	const int32 GenerationSeed,
+	const int64 BranchModuleId)
+{
+	if (StablePointId <= 0 || BranchModuleId < 0)
+	{
+		return;
+	}
+	FAEM8PersistentPlantState& State = M8PersistentPlantStates.FindOrAdd(StablePointId);
+	State.StablePointId = StablePointId;
+	State.SpeciesId = SpeciesId;
+	State.RuleContentHash = RuleContentHash;
+	State.GenerationSeed = GenerationSeed;
+	State.DeadWoodBranchModuleIds.AddUnique(BranchModuleId);
+	State.DeadWoodBranchModuleIds.Sort();
+}
+
+/* Copy one stable plant's structural state for silent restoration. */
+bool UAEAdaptiveEnvWorldSubsystem::GetM8PersistentPlantState(
+	const int64 StablePointId,
+	FAEM8PersistentPlantState& OutState) const
+{
+	if (const FAEM8PersistentPlantState* State = M8PersistentPlantStates.Find(StablePointId))
+	{
+		OutState = *State;
+		return true;
+	}
+	return false;
+}
+
+/* Forward one representation override to the M7 distribution owning the stable point. */
+bool UAEAdaptiveEnvWorldSubsystem::SetM7RepresentativeOverride(
+	const int64 StablePointId,
+	const bool bM8Active)
+{
+	for (const TWeakObjectPtr<UAEVegetationDistributionComponent>& Distribution : RegisteredVegetationDistributions)
+	{
+		if (Distribution.IsValid() && Distribution->SetM8RepresentativeOverride(StablePointId, bM8Active))
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+/* Spawn one Blueprint shell, then discover Construction Script components safely. */
+AActor* UAEAdaptiveEnvWorldSubsystem::SpawnM8PoolActor(
+	const TSubclassOf<AActor> ActorClass,
+	AActor* Owner,
+	FString& OutError)
+{
+	OutError.Reset();
+	UWorld* World = GetWorld();
+	if (World == nullptr || ActorClass == nullptr)
+	{
+		OutError = TEXT("M8 pool spawn requires a World and actor class.");
+		return nullptr;
+	}
+	const FTransform SpawnTransform(FRotator::ZeroRotator, FVector::ZeroVector);
+	AActor* Actor = World->SpawnActorDeferred<AActor>(
+		ActorClass,
+		SpawnTransform,
+		Owner,
+		nullptr,
+		ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
+	if (Actor == nullptr)
+	{
+		OutError = TEXT("Deferred M8 actor spawn failed.");
+		return nullptr;
+	}
+	Actor->FinishSpawning(SpawnTransform);
+	UAELSystemPlantComponent* Plant = Actor->FindComponentByClass<UAELSystemPlantComponent>();
+	if (Plant == nullptr)
+	{
+		OutError = TEXT("Actor class has no L-System plant component after FinishSpawning.");
+		Actor->Destroy();
+		return nullptr;
+	}
+	UnregisterLSystemPlant(Plant);
+	Plant->ClearGeneratedPlant();
+	Actor->SetActorEnableCollision(false);
+	Actor->SetActorHiddenInGame(true);
+	M8ManagedPoolActors.Add(Actor);
+	return Actor;
 }
 
 /* Queues only projected candidate Cells so M4/M5 establish a real baseline before M7 display. */

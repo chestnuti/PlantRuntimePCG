@@ -4,6 +4,8 @@
 #include "AEM7Types.h"
 #include "AEM8Types.generated.h"
 
+class AActor;
+
 UENUM(BlueprintType)
 enum class EAELSystemInputMode : uint8
 {
@@ -37,6 +39,71 @@ enum class EAEBranchStructuralState : uint8
 	DeadWood,
 	/* Reports a persistently detached module. */
 	Broken
+};
+
+UENUM(BlueprintType)
+enum class EAEM8PoolEntryState : uint8
+{
+	/* Reports an initialized actor shell that can accept a new stable plant. */
+	Available,
+	/* Reports an actor currently binding and generating one representative plant. */
+	Activating,
+	/* Reports a visible representative plant inside the managed neighborhood. */
+	Active,
+	/* Reports a released plant retained until every detached branch expires. */
+	WaitingForDebris,
+	/* Reports an actor being cleared before it becomes available. */
+	Returning
+};
+
+USTRUCT(BlueprintType)
+struct ADAPTIVEENVRUNTIME_API FAEM8RepresentativePlantBinding
+{
+	GENERATED_BODY()
+
+	/* Identifies the M7 species consumed by this binding. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Adaptive Environment|M8")
+	FName M7SpeciesId = NAME_None;
+	/* Supplies the Blueprint actor class containing one M8 plant component. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Adaptive Environment|M8")
+	TSubclassOf<AActor> RepresentativePlantActorClass;
+	/* Enables this binding without deleting its authored settings. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Adaptive Environment|M8")
+	bool bEnabled = true;
+	/* Caps active representatives for this species. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Adaptive Environment|M8", meta = (ClampMin = "0", ClampMax = "256"))
+	int32 MaxActivePlants = 8;
+	/* Caps resident active, waiting, and available actor shells for this class. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Adaptive Environment|M8", meta = (ClampMin = "1", ClampMax = "256"))
+	int32 PoolCapacity = 8;
+	/* Creates this many available actor shells during the first activation pass. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Adaptive Environment|M8", meta = (ClampMin = "0", ClampMax = "256"))
+	int32 PrewarmCount = 0;
+};
+
+USTRUCT(BlueprintType)
+struct ADAPTIVEENVRUNTIME_API FAEM8PersistentPlantState
+{
+	GENERATED_BODY()
+
+	/* Identifies the M7 plant owning this World-lifetime structural state. */
+	UPROPERTY(BlueprintReadOnly, Category = "Adaptive Environment|M8")
+	int64 StablePointId = 0;
+	/* Identifies the owning species contract. */
+	UPROPERTY(BlueprintReadOnly, Category = "Adaptive Environment|M8")
+	FName SpeciesId = NAME_None;
+	/* Identifies the exact L-System topology owning the module identities. */
+	UPROPERTY(BlueprintReadOnly, Category = "Adaptive Environment|M8")
+	int64 RuleContentHash = 0;
+	/* Identifies the deterministic generation stream used by the plant. */
+	UPROPERTY(BlueprintReadOnly, Category = "Adaptive Environment|M8")
+	int32 GenerationSeed = 0;
+	/* Stores sorted module identities that remain permanently detached. */
+	UPROPERTY(BlueprintReadOnly, Category = "Adaptive Environment|M8")
+	TArray<int64> BrokenBranchModuleIds;
+	/* Stores sorted module identities that remain persistent dead wood. */
+	UPROPERTY(BlueprintReadOnly, Category = "Adaptive Environment|M8")
+	TArray<int64> DeadWoodBranchModuleIds;
 };
 
 UENUM(BlueprintType)
@@ -237,4 +304,12 @@ struct ADAPTIVEENVRUNTIME_API FAEM8NeighborhoodSelector
 		int32 MaximumSelectionCount,
 		const TSet<int64>& ExcludedStablePointIds,
 		TArray<FAEPlantInstanceSnapshot>& OutSelectedSnapshots);
+};
+
+struct ADAPTIVEENVRUNTIME_API FAEM8PoolPolicy
+{
+	/* Returns whether one detached branch has reached its fixed simulation expiry. */
+	static bool IsDetachedBranchExpired(double CurrentTimeSeconds, double ExpireTimeSeconds);
+	/* Returns whether an actor can enter Available without leaking live debris. */
+	static bool CanReturnToAvailable(int32 LiveDetachedBranchCount);
 };

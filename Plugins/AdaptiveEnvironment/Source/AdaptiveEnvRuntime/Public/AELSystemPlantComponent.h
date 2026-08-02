@@ -36,7 +36,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "M8|Generation")
 	TObjectPtr<UAELSystemRuleAsset> RuleAsset;
 	/* Supplies a per-plant deterministic seed. */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "M8|Generation")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "M8|Generation")
 	int32 GenerationSeed = 1337;
 	/* Builds the fixed initialized plant automatically during BeginPlay. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "M8|Generation")
@@ -56,6 +56,9 @@ public:
 	/* Converts health into the persistent-dead-wood threshold. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "M8|Lifecycle", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float DeadWoodHealthThreshold = 0.05f;
+	/* Defines fixed simulation seconds that detached branch geometry remains alive. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "M8|Breakage", meta = (ClampMin = "0.0", ClampMax = "300.0", Units = "s"))
+	float DetachedBranchLifetimeSeconds = 15.0f;
 
 	/* Generates and submits one fixed plant without requiring upstream runtime input. */
 	UFUNCTION(BlueprintCallable, CallInEditor, Category = "Adaptive Environment|M8")
@@ -72,6 +75,12 @@ public:
 	/* Detaches one initialized hard-branch module and preserves its broken state. */
 	UFUNCTION(BlueprintCallable, Category = "Adaptive Environment|M8")
 	bool BreakBranchModule(int64 BranchModuleId);
+	/* Returns whether at least one detached branch still owns visible physics geometry. */
+	UFUNCTION(BlueprintPure, Category = "Adaptive Environment|M8")
+	bool HasLiveDetachedBranches() const;
+	/* Returns the number of detached branches awaiting their fixed-step expiry. */
+	UFUNCTION(BlueprintPure, Category = "Adaptive Environment|M8")
+	int32 GetLiveDetachedBranchCount() const;
 	/* Reads one persistent branch-module state. */
 	UFUNCTION(BlueprintPure, Category = "Adaptive Environment|M8")
 	EAEBranchStructuralState GetBranchModuleState(int64 BranchModuleId) const;
@@ -90,6 +99,18 @@ public:
 
 	/* Advances M8 visual state from M7 or manual fallback without rebuilding mesh geometry. */
 	void AdvanceM8(const UAEAdaptiveEnvWorldSubsystem& Subsystem);
+	/* Removes expired detached branch geometry while preserving structural loss. */
+	int32 ExpireDetachedBranches(double CurrentSimulationTimeSeconds, int32 MaximumCleanupCount);
+	/* Hides the attached plant while leaving live detached branch geometry visible. */
+	void EnterDebrisReleaseWait();
+	/* Restores attached plant visuals after a pending release is cancelled. */
+	void CancelDebrisReleaseWait();
+	/* Clears one unbound actor shell after every detached branch has expired. */
+	bool PrepareForPool();
+	/* Applies stored structural loss without replaying physics or leaf events. */
+	bool ApplyPersistentStructuralState(const FAEM8PersistentPlantState& State, FString& OutError);
+	/* Returns the current rule topology hash used to validate persistent module IDs. */
+	int64 GetRuleContentHash() const;
 
 protected:
 	/* Registers the component and optionally creates its independent preview. */
@@ -110,6 +131,10 @@ private:
 		TWeakObjectPtr<UMaterialInstanceDynamic> Material;
 		/* Stores persistent structural state independent from M7 recovery. */
 		EAEBranchStructuralState StructuralState = EAEBranchStructuralState::Intact;
+		/* Reports whether detached geometry is still visible and physical. */
+		bool bDetachedDebrisAlive = false;
+		/* Stores fixed simulation time in seconds when detached geometry expires. */
+		double DetachedExpireTimeSeconds = 0.0;
 	};
 
 	/* Resolves M7 or manual input into one complete visual-state contract. */
@@ -140,4 +165,6 @@ private:
 	FAELSystemResolvedPlantState LastResolvedState;
 	/* Reports whether one fixed generated plant is active. */
 	bool bGenerated = false;
+	/* Reports whether attached visuals are suspended during delayed pool release. */
+	bool bWaitingForDebrisRelease = false;
 };

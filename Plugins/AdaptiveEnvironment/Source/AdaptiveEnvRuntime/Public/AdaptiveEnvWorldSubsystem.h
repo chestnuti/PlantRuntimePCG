@@ -8,6 +8,7 @@
 #include "AEPathHeatmapGrid.h"
 #include "AEM4Types.h"
 #include "AEM7Types.h"
+#include "AEM8Types.h"
 #include "Subsystems/WorldSubsystem.h"
 #include "AdaptiveEnvWorldSubsystem.generated.h"
 
@@ -19,6 +20,7 @@ class UAEMoistureSourceComponent;
 class UAEPathHeatmapRendererComponent;
 class UAEVegetationDistributionComponent;
 class UAEPublishedParameterBundleAsset;
+class AActor;
 
 UCLASS()
 class ADAPTIVEENVRUNTIME_API UAEAdaptiveEnvWorldSubsystem final : public UTickableWorldSubsystem
@@ -89,6 +91,20 @@ public:
 	void RegisterRepresentativePlantManager(UAERepresentativePlantManagerComponent* Manager);
 	/* Queues one player-neighborhood M8 activation manager for safe removal. */
 	void UnregisterRepresentativePlantManager(UAERepresentativePlantManagerComponent* Manager);
+	/* Prewarms bounded actor shells for one representative Blueprint class. */
+	void EnsureM8PoolPrewarmed(TSubclassOf<AActor> ActorClass, int32 PrewarmCount, int32 PoolCapacity, AActor* Owner);
+	/* Acquires one available or newly spawned actor shell within the class capacity. */
+	AActor* AcquireM8PooledActor(TSubclassOf<AActor> ActorClass, int32 PoolCapacity, AActor* Owner, FString& OutError);
+	/* Returns one fully expired actor shell to its class-specific available pool. */
+	bool ReturnM8PooledActor(AActor* Actor);
+	/* Stores one persistent broken-module fact before physics side effects. */
+	void RecordM8BrokenBranch(int64 StablePointId, FName SpeciesId, int64 RuleContentHash, int32 GenerationSeed, int64 BranchModuleId);
+	/* Stores one persistent dead-wood fact independent from recoverable health. */
+	void RecordM8DeadWoodBranch(int64 StablePointId, FName SpeciesId, int64 RuleContentHash, int32 GenerationSeed, int64 BranchModuleId);
+	/* Reads World-lifetime structural state for one stable representative plant. */
+	bool GetM8PersistentPlantState(int64 StablePointId, FAEM8PersistentPlantState& OutState) const;
+	/* Hides or restores the M7 HISM representation for one M8-owned stable plant. */
+	bool SetM7RepresentativeOverride(int64 StablePointId, bool bM8Active);
 	/* Queues occupied M7 Cells for one authoritative M4/M5 baseline pass. */
 	void RequestM7BaselineInitialization(const UAEVegetationDistributionComponent* Distribution);
 
@@ -249,6 +265,8 @@ private:
 	void UpdateDebugRenderers(float DeltaTime);
 	/* Validates sample identity, values, and behaviour tag before queuing. */
 	bool ValidateQueuedSample(const FAEBehaviourSample& Sample, EAEBehaviourSubmitResult& OutResult) const;
+	/* Creates one clean Blueprint actor shell after Construction Script components exist. */
+	AActor* SpawnM8PoolActor(TSubclassOf<AActor> ActorClass, AActor* Owner, FString& OutError);
 
 	/* Uniquely identifies this subsystem instance. */
 	FGuid InstanceId;
@@ -340,6 +358,13 @@ private:
 	TArray<TWeakObjectPtr<UAERepresentativePlantManagerComponent>> PendingRepresentativePlantManagerRemoves;
 	/* Stores the next registered M8 plant index scheduled for fixed-step advancement. */
 	int32 M8UpdateCursor = 0;
+	/* Keeps every subsystem-owned pool actor reachable until World teardown. */
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<AActor>> M8ManagedPoolActors;
+	/* Stores clean available actors grouped by exact Blueprint class. */
+	TMap<TObjectKey<UClass>, TArray<TWeakObjectPtr<AActor>>> M8AvailablePoolActorsByClass;
+	/* Stores persistent structural facts independently from recyclable actor shells. */
+	TMap<int64, FAEM8PersistentPlantState> M8PersistentPlantStates;
 	/* Stores unique row-major M7 Cells awaiting their first authoritative M4 sample. */
 	TSet<int32> PendingM7BaselineCellIndices;
 	/* Stores active registered M4 moisture sources. */

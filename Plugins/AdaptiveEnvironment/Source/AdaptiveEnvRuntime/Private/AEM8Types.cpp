@@ -86,3 +86,18 @@ void FAEM8NeighborhoodSelector::SelectNearest(
 		OutSelectedSnapshots.Add(*Candidates[Index].Snapshot);
 	}
 }
+
+/* Resolve one inclusive fixed-time branch expiry boundary. */
+bool FAEM8PoolPolicy::IsDetachedBranchExpired(
+	const double CurrentTimeSeconds,
+	const double ExpireTimeSeconds)
+{
+	/* Reject invalid clocks and include the exact configured lifetime boundary. */
+	return FMath::IsFinite(CurrentTimeSeconds) && FMath::IsFinite(ExpireTimeSeconds) && CurrentTimeSeconds + UE_DOUBLE_SMALL_NUMBER >= ExpireTimeSeconds;
+}
+
+/* Prevent actor reassignment while any detached branch geometry remains alive. */
+bool FAEM8PoolPolicy::CanReturnToAvailable(const int32 LiveDetachedBranchCount)
+{
+	return LiveDetachedBranchCount == 0;
+}

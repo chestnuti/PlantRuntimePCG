@@ -280,4 +280,34 @@ bool FAEM8ComplexityLimitTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FAEM8DetachedBranchExpiryBoundaryTest,
+	"AdaptiveEnv.M8.Pooling.DetachedBranchExpiryBoundary",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+/* Verify debris remains live before its configured inclusive expiry boundary. */
+bool FAEM8DetachedBranchExpiryBoundaryTest::RunTest(const FString& Parameters)
+{
+	TestFalse(TEXT("Debris remains live before expiry"), FAEM8PoolPolicy::IsDetachedBranchExpired(14.999, 15.0));
+	TestTrue(TEXT("Debris expires at its boundary"), FAEM8PoolPolicy::IsDetachedBranchExpired(15.0, 15.0));
+	TestTrue(TEXT("Debris remains expired after its boundary"), FAEM8PoolPolicy::IsDetachedBranchExpired(16.0, 15.0));
+	TestFalse(TEXT("Non-finite timestamps cannot expire debris"), FAEM8PoolPolicy::IsDetachedBranchExpired(NAN, 15.0));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FAEM8LiveDebrisBlocksPoolReturnTest,
+	"AdaptiveEnv.M8.Pooling.LiveDebrisBlocksReturn",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+/* Verify a pooled actor cannot become Available while any detached branch is alive. */
+bool FAEM8LiveDebrisBlocksPoolReturnTest::RunTest(const FString& Parameters)
+{
+	TestFalse(TEXT("One live branch blocks return"), FAEM8PoolPolicy::CanReturnToAvailable(1));
+	TestFalse(TEXT("Multiple live branches block return"), FAEM8PoolPolicy::CanReturnToAvailable(8));
+	TestTrue(TEXT("Zero live branches permits return"), FAEM8PoolPolicy::CanReturnToAvailable(0));
+	TestFalse(TEXT("Invalid negative counts are rejected"), FAEM8PoolPolicy::CanReturnToAvailable(-1));
+	return true;
+}
+
 #endif

@@ -105,6 +105,7 @@ void UAELSystemPlantComponent::ClearGeneratedPlant()
 	BranchModules.Reset();
 	GeneratedPlant = FAELSystemGeneratedPlant();
 	bGenerated = false;
+	bWaitingForDebrisRelease = false;
 }
 
 /* Bind one immutable M7 snapshot and optionally rebuild using its internal stable identity. */
@@ -159,6 +160,25 @@ bool UAELSystemPlantComponent::BreakBranchModule(const int64 BranchModuleId)
 
 	// Persist structural loss before visual or physics state changes.
 	Runtime->StructuralState = EAEBranchStructuralState::Broken;
+	Runtime->bDetachedDebrisAlive = true;
+	double CurrentSimulationTimeSeconds = 0.0;
+	UAEAdaptiveEnvWorldSubsystem* Subsystem = nullptr;
+	if (UWorld* World = GetWorld())
+	{
+		Subsystem = World->GetSubsystem<UAEAdaptiveEnvWorldSubsystem>();
+		if (Subsystem != nullptr)
+		{
+			CurrentSimulationTimeSeconds = Subsystem->GetBehaviourTimeSeconds();
+			Subsystem->RecordM8BrokenBranch(
+				SourceStablePointId,
+				RuleAsset != nullptr ? RuleAsset->SpeciesId : NAME_None,
+				GetRuleContentHash(),
+				GenerationSeed,
+				BranchModuleId);
+		}
+	}
+	Runtime->DetachedExpireTimeSeconds = CurrentSimulationTimeSeconds
+		+ FMath::Max(static_cast<double>(DetachedBranchLifetimeSeconds), 0.0);
 	UBoxComponent* PhysicsRoot = Runtime->PhysicsRoot.Get();
 	PhysicsRoot->DetachFromComponent(FDetachmentTransformRules::KeepWorldTransform);
 	PhysicsRoot->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
@@ -176,6 +196,159 @@ bool UAELSystemPlantComponent::BreakBranchModule(const int64 BranchModuleId)
 		LeafComponent->SetVariableFloat(TEXT("AE_DetachAllLeaves"), 1.0f);
 	}
 	return true;
+}
+
+/* Report whether delayed release must retain this actor shell. */
+bool UAELSystemPlantComponent::HasLiveDetachedBranches() const
+{
+	return GetLiveDetachedBranchCount() > 0;
+}
+
+/* Count detached modules whose geometry has not reached its expiry. */
+int32 UAELSystemPlantComponent::GetLiveDetachedBranchCount() const
+{
+	int32 Count = 0;
+	for (const TPair<int64, FBranchModuleRuntime>& Pair : BranchModules)
+	{
+		Count += Pair.Value.bDetachedDebrisAlive ? 1 : 0;
+	}
+	return Count;
+}
+
+/* Remove bounded expired debris without changing persistent Broken state. */
+int32 UAELSystemPlantComponent::ExpireDetachedBranches(
+	const double CurrentSimulationTimeSeconds,
+	const int32 MaximumCleanupCount)
+{
+	int32 Remaining = FMath::Max(MaximumCleanupCount, 0);
+	int32 RemovedCount = 0;
+	TArray<int64> ModuleIds;
+	BranchModules.GetKeys(ModuleIds);
+	ModuleIds.Sort();
+	for (const int64 ModuleId : ModuleIds)
+	{
+		FBranchModuleRuntime* Runtime = BranchModules.Find(ModuleId);
+		if (Runtime == nullptr || !Runtime->bDetachedDebrisAlive
+			|| !FAEM8PoolPolicy::IsDetachedBranchExpired(CurrentSimulationTimeSeconds, Runtime->DetachedExpireTimeSeconds)
+			|| Remaining <= 0)
+		{
+			continue;
+		}
+
+		// Stop physics before destroying only the expired module-owned components.
+		if (UDynamicMeshComponent* MeshComponent = Runtime->MeshComponent.Get())
+		{
+			OwnedMeshComponents.Remove(MeshComponent);
+			DestroyOwnedComponent(MeshComponent);
+		}
+		if (UBoxComponent* PhysicsRoot = Runtime->PhysicsRoot.Get())
+		{
+			PhysicsRoot->SetSimulatePhysics(false);
+			PhysicsRoot->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+			OwnedPhysicsRoots.Remove(PhysicsRoot);
+			DestroyOwnedComponent(PhysicsRoot);
+		}
+		Runtime->PhysicsRoot.Reset();
+		Runtime->MeshComponent.Reset();
+		Runtime->Material.Reset();
+		Runtime->bDetachedDebrisAlive = false;
+		Runtime->DetachedExpireTimeSeconds = 0.0;
+		--Remaining;
+		++RemovedCount;
+	}
+	return RemovedCount;
+}
+
+/* Suspend attached visuals while detached rigid bodies finish their lifetime. */
+void UAELSystemPlantComponent::EnterDebrisReleaseWait()
+{
+	bWaitingForDebrisRelease = true;
+	for (TPair<int64, FBranchModuleRuntime>& Pair : BranchModules)
+	{
+		FBranchModuleRuntime& Runtime = Pair.Value;
+		if (!Runtime.bDetachedDebrisAlive && Runtime.MeshComponent.IsValid())
+		{
+			Runtime.MeshComponent->SetVisibility(false, true);
+		}
+		if (!Runtime.bDetachedDebrisAlive && Runtime.PhysicsRoot.IsValid())
+		{
+			Runtime.PhysicsRoot->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		}
+	}
+	if (LeafComponent != nullptr)
+	{
+		LeafComponent->Deactivate();
+		LeafComponent->SetVisibility(false, true);
+	}
+}
+
+/* Cancel delayed release without regenerating fixed geometry. */
+void UAELSystemPlantComponent::CancelDebrisReleaseWait()
+{
+	bWaitingForDebrisRelease = false;
+	ApplyResolvedVisualState(LastResolvedState);
+	if (LeafComponent != nullptr)
+	{
+		LeafComponent->Activate();
+	}
+}
+
+/* Reset one actor shell only after no detached geometry remains alive. */
+bool UAELSystemPlantComponent::PrepareForPool()
+{
+	if (!FAEM8PoolPolicy::CanReturnToAvailable(GetLiveDetachedBranchCount()))
+	{
+		return false;
+	}
+	ClearGeneratedPlant();
+	SourceStablePointId = 0;
+	LastResolvedState = FAELSystemResolvedPlantState();
+	if (AActor* Owner = GetOwner())
+	{
+		Owner->SetActorEnableCollision(false);
+		Owner->SetActorHiddenInGame(true);
+	}
+	return true;
+}
+
+/* Restore stored module loss without replaying break physics or Niagara events. */
+bool UAELSystemPlantComponent::ApplyPersistentStructuralState(
+	const FAEM8PersistentPlantState& State,
+	FString& OutError)
+{
+	OutError.Reset();
+	if (State.StablePointId != SourceStablePointId || State.RuleContentHash != GetRuleContentHash())
+	{
+		OutError = TEXT("Persistent M8 state does not match the bound plant topology.");
+		return false;
+	}
+	for (const int64 ModuleId : State.BrokenBranchModuleIds)
+	{
+		if (FBranchModuleRuntime* Runtime = BranchModules.Find(ModuleId))
+		{
+			Runtime->StructuralState = EAEBranchStructuralState::Broken;
+			Runtime->bDetachedDebrisAlive = false;
+			if (Runtime->MeshComponent.IsValid()) Runtime->MeshComponent->SetVisibility(false, true);
+			if (Runtime->PhysicsRoot.IsValid()) Runtime->PhysicsRoot->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		}
+	}
+	for (const int64 ModuleId : State.DeadWoodBranchModuleIds)
+	{
+		if (FBranchModuleRuntime* Runtime = BranchModules.Find(ModuleId))
+		{
+			Runtime->StructuralState = EAEBranchStructuralState::DeadWood;
+			if (Runtime->Material.IsValid()) Runtime->Material->SetScalarParameterValue(TEXT("AE_DeadWood"), 1.0f);
+		}
+	}
+	return true;
+}
+
+/* Hash the current rule topology into the signed Blueprint-compatible domain. */
+int64 UAELSystemPlantComponent::GetRuleContentHash() const
+{
+	return RuleAsset != nullptr
+		? static_cast<int64>(RuleAsset->ComputeContentHash() & MAX_int64)
+		: 0;
 }
 
 /* Read persistent M8 structural state without consulting recoverable M7 health. */
@@ -397,10 +570,25 @@ void UAELSystemPlantComponent::ApplyResolvedVisualState(const FAELSystemResolved
 		if (Runtime.StructuralState == EAEBranchStructuralState::Intact && Health <= DeadWoodHealthThreshold)
 		{
 			Runtime.StructuralState = EAEBranchStructuralState::DeadWood;
+			if (UWorld* World = GetWorld())
+			{
+				if (UAEAdaptiveEnvWorldSubsystem* Subsystem = World->GetSubsystem<UAEAdaptiveEnvWorldSubsystem>())
+				{
+					Subsystem->RecordM8DeadWoodBranch(
+						SourceStablePointId,
+						State.SpeciesId,
+						GetRuleContentHash(),
+						GenerationSeed,
+						Runtime.ModuleId);
+				}
+			}
 		}
 		if (Runtime.MeshComponent.IsValid())
 		{
-			Runtime.MeshComponent->SetVisibility(State.bVisible, true);
+			const bool bModuleVisible = State.bVisible
+				&& !(Runtime.StructuralState == EAEBranchStructuralState::Broken
+					&& !Runtime.bDetachedDebrisAlive);
+			Runtime.MeshComponent->SetVisibility(bModuleVisible, true);
 		}
 		if (Runtime.Material.IsValid())
 		{
