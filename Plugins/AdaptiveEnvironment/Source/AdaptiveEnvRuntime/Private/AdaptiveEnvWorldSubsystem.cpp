@@ -3,8 +3,10 @@
 #include "AEBehaviourTrackerComponent.h"
 #include "AEHeatmapRendererComponent.h"
 #include "AEPathHeatmapRendererComponent.h"
+#include "AERepresentativePlantManagerComponent.h"
 #include "AEVegetationDistributionComponent.h"
 #include "AELSystemPlantComponent.h"
+#include "AEM8Types.h"
 #include "AEMoistureSourceComponent.h"
 #include "AEWorldConstraintProvider.h"
 #include "AEParameterBundleService.h"
@@ -24,6 +26,7 @@ void UAEAdaptiveEnvWorldSubsystem::Initialize(FSubsystemCollectionBase& Collecti
 	// Load scheduler controls and establish a unique World instance identity.
 	InstanceId = FGuid::NewGuid();
 	TickCount = 0;
+	M8UpdateCursor = 0;
 	const UAdaptiveEnvSettings* Settings = GetDefault<UAdaptiveEnvSettings>();
 	bRuntimeEnabled = Settings->bEnableRuntime;
 	BehaviourStepSeconds = 1.0f / FMath::Max(Settings->BehaviourSampleRateHz, 1.0f);
@@ -143,6 +146,10 @@ void UAEAdaptiveEnvWorldSubsystem::Deinitialize()
 	RegisteredLSystemPlants.Reset();
 	PendingLSystemPlantAdds.Reset();
 	PendingLSystemPlantRemoves.Reset();
+	RegisteredRepresentativePlantManagers.Reset();
+	PendingRepresentativePlantManagerAdds.Reset();
+	PendingRepresentativePlantManagerRemoves.Reset();
+	M8UpdateCursor = 0;
 	RegisteredMoistureSources.Reset();
 	PendingMoistureSourceAdds.Reset();
 	PendingMoistureSourceRemoves.Reset();
@@ -200,6 +207,7 @@ void UAEAdaptiveEnvWorldSubsystem::Tick(float DeltaTime)
 		UpdateM5(BehaviourStepSeconds);
 		UpdateM6(BehaviourStepSeconds);
 		UpdateM7(BehaviourStepSeconds);
+		UpdateM8NeighborhoodActivation(BehaviourStepSeconds);
 		UpdateM8();
 		AccumulateDebugActiveCells();
 		++ProcessedBehaviourStepCount;
@@ -382,6 +390,28 @@ void UAEAdaptiveEnvWorldSubsystem::UnregisterLSystemPlant(UAELSystemPlantCompone
 	{
 		PendingLSystemPlantRemoves.AddUnique(Plant);
 		PendingLSystemPlantAdds.Remove(Plant);
+	}
+}
+
+/* Queue one M8 neighborhood manager for registration at the next safe boundary. */
+void UAEAdaptiveEnvWorldSubsystem::RegisterRepresentativePlantManager(
+	UAERepresentativePlantManagerComponent* Manager)
+{
+	if (IsValid(Manager))
+	{
+		PendingRepresentativePlantManagerAdds.AddUnique(Manager);
+		PendingRepresentativePlantManagerRemoves.Remove(Manager);
+	}
+}
+
+/* Queue one M8 neighborhood manager for removal at the next safe boundary. */
+void UAEAdaptiveEnvWorldSubsystem::UnregisterRepresentativePlantManager(
+	UAERepresentativePlantManagerComponent* Manager)
+{
+	if (Manager != nullptr)
+	{
+		PendingRepresentativePlantManagerRemoves.AddUnique(Manager);
+		PendingRepresentativePlantManagerAdds.Remove(Manager);
 	}
 }
 
@@ -598,6 +628,30 @@ bool UAEAdaptiveEnvWorldSubsystem::GetM7PlantInstanceState(
 		}
 	}
 	return false;
+}
+
+/* Collect all M7 snapshots in stable identity order for read-only consumers. */
+void UAEAdaptiveEnvWorldSubsystem::GetM7PlantInstanceStates(
+	TArray<FAEPlantInstanceSnapshot>& OutSnapshots) const
+{
+	OutSnapshots.Reset();
+	if (!bM7Enabled)
+	{
+		return;
+	}
+	TArray<FAEPlantInstanceSnapshot> DistributionSnapshots;
+	for (const TWeakObjectPtr<UAEVegetationDistributionComponent>& Distribution : RegisteredVegetationDistributions)
+	{
+		if (Distribution.IsValid())
+		{
+			Distribution->GetPlantInstanceStates(DistributionSnapshots);
+			OutSnapshots.Append(DistributionSnapshots);
+		}
+	}
+	OutSnapshots.Sort([](const FAEPlantInstanceSnapshot& A, const FAEPlantInstanceSnapshot& B)
+	{
+		return A.StablePointId < B.StablePointId;
+	});
 }
 
 /* Forward a coordinate query to the World-owned M3 Grid. */
@@ -857,6 +911,23 @@ void UAEAdaptiveEnvWorldSubsystem::ApplyPendingRegistrations()
 		}
 	}
 	PendingLSystemPlantAdds.Reset();
+
+	// Apply M8 neighborhood-manager removals before additions for stable fixed-step iteration.
+	for (const TWeakObjectPtr<UAERepresentativePlantManagerComponent>& Manager : PendingRepresentativePlantManagerRemoves)
+	{
+		RegisteredRepresentativePlantManagers.Remove(Manager);
+	}
+	PendingRepresentativePlantManagerRemoves.Reset();
+	RegisteredRepresentativePlantManagers.RemoveAll(
+		[](const TWeakObjectPtr<UAERepresentativePlantManagerComponent>& Item) { return !Item.IsValid(); });
+	for (const TWeakObjectPtr<UAERepresentativePlantManagerComponent>& Manager : PendingRepresentativePlantManagerAdds)
+	{
+		if (Manager.IsValid())
+		{
+			RegisteredRepresentativePlantManagers.AddUnique(Manager);
+		}
+	}
+	PendingRepresentativePlantManagerAdds.Reset();
 }
 
 // Pull one sample from each valid tracker at the shared fixed time.
@@ -1017,7 +1088,23 @@ void UAEAdaptiveEnvWorldSubsystem::UpdateM7(const float StepSeconds)
 	}
 }
 
-/* Resolve registered M8 lifecycle visuals after M7 without modifying fixed mesh topology. */
+/* Activate bounded player-neighborhood representatives after M7 commits. */
+void UAEAdaptiveEnvWorldSubsystem::UpdateM8NeighborhoodActivation(const float StepSeconds)
+{
+	if (!bM8Enabled || !bM7Enabled)
+	{
+		return;
+	}
+	for (const TWeakObjectPtr<UAERepresentativePlantManagerComponent>& Manager : RegisteredRepresentativePlantManagers)
+	{
+		if (Manager.IsValid())
+		{
+			Manager->AdvanceNeighborhoodActivation(*this, StepSeconds);
+		}
+	}
+}
+
+/* Resolve registered M8 lifecycle visuals after activation without modifying fixed mesh topology. */
 void UAEAdaptiveEnvWorldSubsystem::UpdateM8()
 {
 	if (!bM8Enabled)
@@ -1025,15 +1112,21 @@ void UAEAdaptiveEnvWorldSubsystem::UpdateM8()
 		return;
 	}
 	const int32 Budget = FMath::Max(GetDefault<UAdaptiveEnvSettings>()->M8MaxPlantsPerStep, 1);
-	int32 AppliedCount = 0;
-	for (const TWeakObjectPtr<UAELSystemPlantComponent>& Plant : RegisteredLSystemPlants)
+	TArray<int32> ScheduledIndices;
+	FAEM8RoundRobinScheduler::BuildWindow(
+		RegisteredLSystemPlants.Num(),
+		Budget,
+		M8UpdateCursor,
+		ScheduledIndices);
+
+	// Advance only the fair bounded window selected for this fixed step.
+	for (const int32 PlantIndex : ScheduledIndices)
 	{
-		if (Plant.IsValid())
+		if (RegisteredLSystemPlants.IsValidIndex(PlantIndex))
 		{
-			Plant->AdvanceM8(*this);
-			if (++AppliedCount >= Budget)
+			if (UAELSystemPlantComponent* Plant = RegisteredLSystemPlants[PlantIndex].Get())
 			{
-				break;
+				Plant->AdvanceM8(*this);
 			}
 		}
 	}

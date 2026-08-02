@@ -5,6 +5,7 @@
 #include "AELSystemGenerator.h"
 #include "AELSystemPlantComponent.h"
 #include "AELSystemRuleAsset.h"
+#include "AEM8Types.h"
 
 namespace AdaptiveEnvM8Tests
 {
@@ -95,6 +96,82 @@ bool FAEM8SnapshotBindingAvoidsManualIdentityTest::RunTest(const FString& Parame
 	Snapshot.StablePointId = 0;
 	TestFalse(TEXT("Snapshot without an internal identity is rejected"), Component->BindToM7PlantSnapshot(Snapshot, false, Error));
 	TestTrue(TEXT("Rejected snapshot reports a diagnostic"), !Error.IsEmpty());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FAEM8RoundRobinCoverageTest,
+	"AdaptiveEnv.M8.Scheduling.RoundRobinCoverage",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+/* Verify a bounded M8 budget eventually advances every registered plant. */
+bool FAEM8RoundRobinCoverageTest::RunTest(const FString& Parameters)
+{
+	int32 Cursor = 0;
+	TSet<int32> VisitedIndices;
+	TArray<int32> Window;
+	for (int32 StepIndex = 0; StepIndex < 3; ++StepIndex)
+	{
+		FAEM8RoundRobinScheduler::BuildWindow(70, 32, Cursor, Window);
+		TestEqual(TEXT("Every fixed step respects the M8 budget"), Window.Num(), 32);
+		for (const int32 Index : Window)
+		{
+			VisitedIndices.Add(Index);
+		}
+	}
+
+	TestEqual(TEXT("Three windows cover all registered plants"), VisitedIndices.Num(), 70);
+	TestEqual(TEXT("Cursor continues after the wrapped third window"), Cursor, 26);
+
+	FAEM8RoundRobinScheduler::BuildWindow(0, 32, Cursor, Window);
+	TestTrue(TEXT("An empty registration set emits no work"), Window.IsEmpty());
+	TestEqual(TEXT("An empty registration set resets the cursor"), Cursor, 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FAEM8NeighborhoodNearestVisibleSelectionTest,
+	"AdaptiveEnv.M8.Activation.NearestVisibleSelection",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+/* Verify neighborhood activation is visible-only, nearest-first, bounded, and duplicate-safe. */
+bool FAEM8NeighborhoodNearestVisibleSelectionTest::RunTest(const FString& Parameters)
+{
+	TArray<FAEPlantInstanceSnapshot> Snapshots;
+	auto AddSnapshot = [&Snapshots](const int64 StablePointId, const float X, const bool bVisible)
+	{
+		FAEPlantInstanceSnapshot& Snapshot = Snapshots.AddDefaulted_GetRef();
+		Snapshot.StablePointId = StablePointId;
+		Snapshot.WorldLocation = FVector(X, 0.0f, 0.0f);
+		Snapshot.bVisible = bVisible;
+	};
+	AddSnapshot(30, 300.0f, true);
+	AddSnapshot(20, 100.0f, true);
+	AddSnapshot(10, 100.0f, true);
+	AddSnapshot(40, 50.0f, false);
+	AddSnapshot(50, 600.0f, true);
+
+	TSet<int64> ExcludedIds = {20};
+	TArray<FAEPlantInstanceSnapshot> Selected;
+	FAEM8NeighborhoodSelector::SelectNearest(
+		Snapshots,
+		FVector::ZeroVector,
+		400.0f,
+		2,
+		ExcludedIds,
+		Selected);
+	TestEqual(TEXT("Selection respects the activation budget"), Selected.Num(), 2);
+	TestEqual(TEXT("Equal-distance candidates use stable identity order"), Selected[0].StablePointId, int64(10));
+	TestEqual(TEXT("The next valid in-radius candidate follows"), Selected[1].StablePointId, int64(30));
+
+	FAEM8NeighborhoodSelector::SelectNearest(
+		Snapshots,
+		FVector::ZeroVector,
+		-1.0f,
+		2,
+		ExcludedIds,
+		Selected);
+	TestTrue(TEXT("Invalid negative radius emits no activation"), Selected.IsEmpty());
 	return true;
 }
 

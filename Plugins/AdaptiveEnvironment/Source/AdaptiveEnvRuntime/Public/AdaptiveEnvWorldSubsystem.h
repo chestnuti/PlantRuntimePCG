@@ -14,6 +14,7 @@
 class UAEBehaviourTrackerComponent;
 class UAEHeatmapRendererComponent;
 class UAELSystemPlantComponent;
+class UAERepresentativePlantManagerComponent;
 class UAEMoistureSourceComponent;
 class UAEPathHeatmapRendererComponent;
 class UAEVegetationDistributionComponent;
@@ -84,6 +85,10 @@ public:
 	void RegisterLSystemPlant(UAELSystemPlantComponent* Plant);
 	/* Queues one M8 representative plant for safe removal. */
 	void UnregisterLSystemPlant(UAELSystemPlantComponent* Plant);
+	/* Queues one player-neighborhood M8 activation manager for safe registration. */
+	void RegisterRepresentativePlantManager(UAERepresentativePlantManagerComponent* Manager);
+	/* Queues one player-neighborhood M8 activation manager for safe removal. */
+	void UnregisterRepresentativePlantManager(UAERepresentativePlantManagerComponent* Manager);
 	/* Queues occupied M7 Cells for one authoritative M4/M5 baseline pass. */
 	void RequestM7BaselineInitialization(const UAEVegetationDistributionComponent* Distribution);
 
@@ -189,6 +194,8 @@ public:
 	/* Provides M8 and gameplay systems with immutable per-plant state. */
 	UFUNCTION(BlueprintPure, Category = "Adaptive Environment|M7")
 	bool GetM7PlantInstanceState(int64 StablePointId, FAEPlantInstanceSnapshot& OutSnapshot) const;
+	/* Collects every registered M7 snapshot for deterministic neighborhood selection. */
+	void GetM7PlantInstanceStates(TArray<FAEPlantInstanceSnapshot>& OutSnapshots) const;
 
 	/* Collects non-empty cells around a world position for debug drawing. */
 	void GetDebugCells(const FVector& Location, float RadiusCm, int32 MaxCells, TArray<FAEBehaviourCellSnapshot>& OutCells) const;
@@ -222,6 +229,8 @@ private:
 	void UpdateM6(float StepSeconds);
 	/* Derives M7 from the same committed M5 work set without consuming M6 output. */
 	void UpdateM7(float StepSeconds);
+	/* Activates bounded player-neighborhood M8 representatives after M7 commits. */
+	void UpdateM8NeighborhoodActivation(float StepSeconds);
 	/* Resolves M8 visual state after M7 commits without rebuilding fixed geometry. */
 	void UpdateM8();
 	/* Applies bounded per-instance custom-data and transform changes. */
@@ -325,6 +334,12 @@ private:
 	TArray<TWeakObjectPtr<UAELSystemPlantComponent>> PendingLSystemPlantAdds;
 	/* Stores M8 plants awaiting safe removal. */
 	TArray<TWeakObjectPtr<UAELSystemPlantComponent>> PendingLSystemPlantRemoves;
+	/* Stores active non-owning player-neighborhood activation managers. */
+	TArray<TWeakObjectPtr<UAERepresentativePlantManagerComponent>> RegisteredRepresentativePlantManagers;
+	TArray<TWeakObjectPtr<UAERepresentativePlantManagerComponent>> PendingRepresentativePlantManagerAdds;
+	TArray<TWeakObjectPtr<UAERepresentativePlantManagerComponent>> PendingRepresentativePlantManagerRemoves;
+	/* Stores the next registered M8 plant index scheduled for fixed-step advancement. */
+	int32 M8UpdateCursor = 0;
 	/* Stores unique row-major M7 Cells awaiting their first authoritative M4 sample. */
 	TSet<int32> PendingM7BaselineCellIndices;
 	/* Stores active registered M4 moisture sources. */

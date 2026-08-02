@@ -217,3 +217,24 @@ struct ADAPTIVEENVRUNTIME_API FAELSystemGeneratedPlant
 	int32 ExpandedSymbolCount = 0;
 };
 
+struct ADAPTIVEENVRUNTIME_API FAEM8RoundRobinScheduler
+{
+	/* Builds one bounded fair index window and advances the persistent cursor. */
+	static void BuildWindow(
+		int32 ItemCount,
+		int32 Budget,
+		int32& InOutCursor,
+		TArray<int32>& OutIndices);
+};
+
+struct ADAPTIVEENVRUNTIME_API FAEM8NeighborhoodSelector
+{
+	/* Selects the nearest visible unactivated M7 snapshots in deterministic order. */
+	static void SelectNearest(
+		const TArray<FAEPlantInstanceSnapshot>& Snapshots,
+		const FVector& PlayerWorldLocation,
+		float ActivationRadiusCm,
+		int32 MaximumSelectionCount,
+		const TSet<int64>& ExcludedStablePointIds,
+		TArray<FAEPlantInstanceSnapshot>& OutSelectedSnapshots);
+};
