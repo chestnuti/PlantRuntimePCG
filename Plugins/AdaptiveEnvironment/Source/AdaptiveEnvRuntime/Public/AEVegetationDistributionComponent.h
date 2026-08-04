@@ -34,6 +34,11 @@ public:
 	/* Resolves one M8-facing immutable instance snapshot. */
 	UFUNCTION(BlueprintPure, Category = "Adaptive Environment|M7")
 	bool GetPlantInstanceState(int64 StablePointId, FAEPlantInstanceSnapshot& OutSnapshot) const;
+	/* Returns every M7 snapshot sorted by stable identity for Blueprint selection. */
+	UFUNCTION(BlueprintCallable, Category = "Adaptive Environment|M7")
+	void GetPlantInstanceStates(TArray<FAEPlantInstanceSnapshot>& OutSnapshots) const;
+	/* Hides or restores one M7 instance while an M8 representative owns its display. */
+	bool SetM8RepresentativeOverride(int64 StablePointId, bool bM8Active);
 	/* Reports immutable candidates across all species. */
 	UFUNCTION(BlueprintPure, Category = "Adaptive Environment|M7")
 	int32 GetStableCandidateCount() const;
@@ -103,6 +108,8 @@ private:
 	TArray<FSpeciesRuntime> SpeciesRuntime;
 	/* Maps stable identities to species and candidate array indices. */
 	TMap<int64, TPair<int32, int32>> StablePointLookup;
+	/* Stores stable identities whose M7 HISM representation is replaced by M8. */
+	TSet<int64> M8RepresentativeOverrideIds;
 	/* Reports whether at least one valid species runtime was built. */
 	bool bInitialized = false;
 };

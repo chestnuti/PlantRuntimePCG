@@ -407,14 +407,16 @@ void UAEVegetationDistributionComponent::ApplyVisualBudget(const int32 MaximumUp
 			}
 			const FAEPlantInstanceSnapshot& Snapshot = Runtime.Snapshots[Index];
 			Runtime.Instances->SetCustomDataValue(Index, 0, Snapshot.HealthRatio, false);
-			Runtime.Instances->SetCustomDataValue(Index, 1, Snapshot.bVisible ? 1.0f : 0.0f, false);
+			const bool bEffectiveVisible = Snapshot.bVisible
+				&& !M8RepresentativeOverrideIds.Contains(Snapshot.StablePointId);
+			Runtime.Instances->SetCustomDataValue(Index, 1, bEffectiveVisible ? 1.0f : 0.0f, false);
 			Runtime.Instances->SetCustomDataValue(Index, 2, static_cast<float>(Snapshot.LifecycleState) / 4.0f, false);
 			Runtime.Instances->SetCustomDataValue(Index, 3, Snapshot.LifecycleProgressRatio, false);
 			Runtime.Instances->SetCustomDataValue(Index, 4, Snapshot.DistributionRatio, false);
 			if (Runtime.BaseWorldTransforms.IsValidIndex(Index))
 			{
 				FTransform Transform = Runtime.BaseWorldTransforms[Index];
-				Transform.SetScale3D(Snapshot.bVisible ? FVector::OneVector : FVector::ZeroVector);
+				Transform.SetScale3D(bEffectiveVisible ? FVector::OneVector : FVector::ZeroVector);
 				Runtime.Instances->UpdateInstanceTransform(Index, Transform, true, false, true);
 			}
 			Runtime.PendingVisualIndices.Remove(Index);
@@ -436,6 +438,49 @@ bool UAEVegetationDistributionComponent::GetPlantInstanceState(
 	}
 	OutSnapshot = SpeciesRuntime[Location->Key].Snapshots[Location->Value];
 	return true;
+}
+
+/* Queue one stable HISM instance for M8 representation replacement or restoration. */
+bool UAEVegetationDistributionComponent::SetM8RepresentativeOverride(
+	const int64 StablePointId,
+	const bool bM8Active)
+{
+	const TPair<int32, int32>* Location = StablePointLookup.Find(StablePointId);
+	if (Location == nullptr || !SpeciesRuntime.IsValidIndex(Location->Key)
+		|| !SpeciesRuntime[Location->Key].Snapshots.IsValidIndex(Location->Value))
+	{
+		return false;
+	}
+	if (bM8Active)
+	{
+		M8RepresentativeOverrideIds.Add(StablePointId);
+	}
+	else
+	{
+		M8RepresentativeOverrideIds.Remove(StablePointId);
+	}
+	SpeciesRuntime[Location->Key].PendingVisualIndices.Add(Location->Value);
+	return true;
+}
+
+/* Copy all current M7 snapshots into one deterministic Blueprint-facing array. */
+void UAEVegetationDistributionComponent::GetPlantInstanceStates(
+	TArray<FAEPlantInstanceSnapshot>& OutSnapshots) const
+{
+	OutSnapshots.Reset();
+
+	// Flatten species-owned snapshots without exposing mutable runtime storage.
+	for (const FSpeciesRuntime& Runtime : SpeciesRuntime)
+	{
+		OutSnapshots.Append(Runtime.Snapshots);
+	}
+
+	// Keep Blueprint selection stable across species and registration order.
+	OutSnapshots.Sort(
+		[](const FAEPlantInstanceSnapshot& A, const FAEPlantInstanceSnapshot& B)
+		{
+			return A.StablePointId < B.StablePointId;
+		});
 }
 
 /* Counts immutable candidates across all configured species. */
@@ -480,6 +525,7 @@ void UAEVegetationDistributionComponent::DestroyOwnedInstances()
 		}
 	}
 	SpeciesRuntime.Reset();
+	M8RepresentativeOverrideIds.Reset();
 	bInitialized = false;
 }
 
