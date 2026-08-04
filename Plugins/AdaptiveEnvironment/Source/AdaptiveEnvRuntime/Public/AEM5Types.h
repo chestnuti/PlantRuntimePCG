@@ -1,7 +1,6 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "AEParameterBundleTypes.h"
 #include "AEM5Types.generated.h"
 
 /* Freezes one version-compatible M3/M4 input pair for a single M5 Cell step. */
@@ -23,8 +22,8 @@ struct ADAPTIVEENVRUNTIME_API FAEM5InputSnapshot
 	uint64 ConstraintRevision = 0;
 	/* Identifies the shared fixed simulation step. */
 	uint64 SimulationStep = 0;
-	/* Identifies the atomic parameter bundle used for the calculation. */
-	FAEParameterBundleIdentity BundleIdentity;
+	/* Identifies the atomic product configuration used for the calculation. */
+	uint32 ConfigRevision = 0;
 };
 
 /* Stores the M5 impact-fusion parameters. */

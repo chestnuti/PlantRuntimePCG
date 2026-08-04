@@ -1,7 +1,6 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "AEParameterBundleTypes.h"
 #include "AEM3Types.h"
 #include "AEM5Types.h"
 #include "AdaptiveEnvTypes.h"
@@ -42,37 +41,6 @@ struct ADAPTIVEENVRUNTIME_API FAEM4ParameterSet
 	FAEConstraintResponseParameters ConstraintResponse;
 	/* Stores state threshold and temporal stability values. */
 	FAERegionStateParameters RegionState;
-};
-
-/* Atomically binds one bundle identity to its M3, M4, and M5 typed values. */
-struct ADAPTIVEENVRUNTIME_API FAEActiveParameterSnapshot
-{
-	/* Stores immutable bundle identity for manifests and switch checks. */
-	FAEParameterBundleIdentity BundleIdentity;
-	/* Stores the validated M3 block identity. */
-	FGuid M3BlockId;
-	/* Stores the validated M3 block semantic version. */
-	FString M3BlockVersion;
-	/* Stores the validated M3 block canonical hash. */
-	FString M3BlockHash;
-	/* Stores the validated M4 block identity. */
-	FGuid M4BlockId;
-	/* Stores the validated M4 block semantic version. */
-	FString M4BlockVersion;
-	/* Stores the validated M4 block canonical hash. */
-	FString M4BlockHash;
-	/* Stores the validated M5 block identity. */
-	FGuid M5BlockId;
-	/* Stores the validated M5 block semantic version. */
-	FString M5BlockVersion;
-	/* Stores the validated M5 block canonical hash. */
-	FString M5BlockHash;
-	/* Stores grouped M3 runtime values. */
-	FAEM3ParameterSet M3;
-	/* Stores grouped M4 runtime values. */
-	FAEM4ParameterSet M4;
-	/* Stores grouped M5 runtime values. */
-	FAEM5ParameterSet M5;
 };
 
 /* Stores mutable temporal state for one M4 region or Cell. */

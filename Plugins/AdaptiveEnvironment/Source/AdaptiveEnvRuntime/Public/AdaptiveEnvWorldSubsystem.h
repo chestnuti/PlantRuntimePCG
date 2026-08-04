@@ -6,6 +6,7 @@
 #include "AEEcologicalResponseGrid.h"
 #include "AEHeatmapGrid.h"
 #include "AEPathHeatmapGrid.h"
+#include "AEActiveEnvironmentConfig.h"
 #include "AEM4Types.h"
 #include "AEM7Types.h"
 #include "AEM8Types.h"
@@ -19,7 +20,7 @@ class UAERepresentativePlantManagerComponent;
 class UAEMoistureSourceComponent;
 class UAEPathHeatmapRendererComponent;
 class UAEVegetationDistributionComponent;
-class UAEPublishedParameterBundleAsset;
+class UAEAdaptiveEnvironmentProfile;
 class AActor;
 
 UCLASS()
@@ -152,9 +153,18 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Adaptive Environment|M5")
 	bool IsM5Enabled() const { return bM5Enabled; }
 
-	/* Validates and atomically applies one complete M3/M4/M5 published parameter bundle. */
-	UFUNCTION(BlueprintCallable, Category = "Adaptive Environment|Parameters")
-	bool ApplyParameterBundle(UAEPublishedParameterBundleAsset* Bundle, FString& OutError);
+	/* Validates and atomically applies one complete M3/M4/M5 product profile. */
+	UFUNCTION(BlueprintCallable, Category = "Adaptive Environment|Configuration")
+	bool ApplyEnvironmentProfile(UAEAdaptiveEnvironmentProfile* Profile, FString& OutError);
+
+	UFUNCTION(BlueprintPure, Category = "Adaptive Environment|Configuration")
+	FName GetActiveEnvironmentProfileId() const { return ActiveEnvironmentConfig.ProfileId; }
+
+	UFUNCTION(BlueprintPure, Category = "Adaptive Environment|Configuration")
+	int32 GetEnvironmentConfigVersion() const { return ActiveEnvironmentConfig.ConfigVersion; }
+
+	UFUNCTION(BlueprintPure, Category = "Adaptive Environment|Configuration")
+	int64 GetEnvironmentConfigRevision() const { return static_cast<int64>(ActiveEnvironmentConfig.RuntimeRevision); }
 
 	/* Reads one M3 Cell by integer XY coordinate. */
 	UFUNCTION(BlueprintPure, Category = "Adaptive Environment|M3")
@@ -255,7 +265,7 @@ private:
 	void UpdateM6VisualRenderers(float DeltaTime);
 	/* Queues one full M6 texture reconstruction for a renderer. */
 	void QueueFullM6VisualRebuild(UAEPathHeatmapRendererComponent& Renderer) const;
-	/* Rebuilds M3 once from all current raw Cell totals after a parameter-package switch. */
+	/* Rebuilds M3 once from all current raw Cell totals after a profile switch. */
 	void RebuildM3FromCurrentRawGrid();
 	/* Accumulates raw Cells changed since the previous completed debug refresh. */
 	void AccumulateDebugActiveCells();
@@ -284,11 +294,11 @@ private:
 	FAEEcologicalResponseGrid ResponseGrid;
 	/* Owns complete M6 path visual state aligned with M1-M5. */
 	FAEPathHeatmapGrid PathHeatmapGrid;
-	/* Stores the atomically committed bundle identity and grouped M3/M4 parameter values. */
-	FAEActiveParameterSnapshot ActiveParameters;
+	/* Stores the atomically committed product configuration for M3 through M5. */
+	FAEActiveEnvironmentConfig ActiveEnvironmentConfig;
 	/* Controls M3 updates independently from the valid M1 runtime pipeline. */
 	bool bM3Enabled = false;
-	/* Controls M4 decisions independently while sharing the active bundle snapshot. */
+	/* Controls M4 decisions while sharing the active product configuration. */
 	bool bM4Enabled = false;
 	/* Controls World-level M5 response updates. */
 	bool bM5Enabled = false;

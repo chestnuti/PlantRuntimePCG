@@ -36,7 +36,7 @@ bool UAELSystemRuleAsset::Validate(FString& OutError) const
 	return true;
 }
 
-/* Hash canonical M8 asset content for cache invalidation and replay evidence. */
+	/* Hash stable M8 asset content for cache invalidation and runtime diagnostics. */
 uint64 UAELSystemRuleAsset::ComputeContentHash() const
 {
 	uint64 Hash = GetTypeHash(SpeciesId);

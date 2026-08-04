@@ -13,7 +13,7 @@ public:
 	/* Clears response state, active tracking, revisions, and counters. */
 	void Reset();
 	/* Advances version-compatible inputs in row-major order. */
-	bool Update(const TArray<FAEM5InputSnapshot>& Inputs, double DeltaSimulationHours, const FAEM5ParameterSet& Parameters, const FAEParameterBundleIdentity& ActiveBundleIdentity);
+	bool Update(const TArray<FAEM5InputSnapshot>& Inputs, double DeltaSimulationHours, const FAEM5ParameterSet& Parameters, uint32 ActiveConfigRevision);
 	/* Builds the stable union of upstream changes and continuing M5 state. */
 	void BuildCandidateIndices(const TArray<int32>& M3ChangedIndices, const TArray<int32>& M4ChangedIndices, TArray<int32>& OutIndices) const;
 	/* Reads one initialized response by Cell coordinate. */

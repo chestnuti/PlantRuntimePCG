@@ -9,11 +9,8 @@
 #include "AEM8Types.h"
 #include "AEMoistureSourceComponent.h"
 #include "AEWorldConstraintProvider.h"
-#include "AEParameterBundleService.h"
-#include "AEM3ParameterService.h"
-#include "AEM4ParameterService.h"
-#include "AEM5ParameterService.h"
-#include "AEPublishedParameterBundleAsset.h"
+#include "AEAdaptiveEnvironmentProfile.h"
+#include "AEM2ConfigService.h"
 #include "AdaptiveEnvGameplayTags.h"
 #include "AdaptiveEnvLog.h"
 #include "AdaptiveEnvSettings.h"
@@ -71,35 +68,27 @@ void UAEAdaptiveEnvWorldSubsystem::Initialize(FSubsystemCollectionBase& Collecti
 	M6Parameters.FadeRatePerSimulationHour = Settings->M6FadeRatePerSimulationHour;
 	M6Parameters.DirtyIntensityEpsilon = Settings->M6DirtyIntensityEpsilon;
 
-	// Load one atomic M3/M4/M5 bundle without disabling the validated M1 pipeline when absent.
+	// Load one atomic M3/M4/M5 profile without disabling the valid M1 pipeline when absent.
 	bM3Enabled = false;
 	bM4Enabled = false;
 	bM5Enabled = false;
 	bM6Enabled = false;
 	bM7Enabled = false;
 	bM8Enabled = bRuntimeEnabled && Settings->bEnableM8;
-	if (bRuntimeEnabled && (Settings->bEnableM3 || Settings->bEnableM4 || Settings->bEnableM5))
+	if (bRuntimeEnabled && Settings->bEnableAdaptiveEcology)
 	{
-		UAEPublishedParameterBundleAsset* Bundle = Settings->ParameterBundle.LoadSynchronous();
-		if (Bundle != nullptr)
+		UAEAdaptiveEnvironmentProfile* Profile = Settings->EnvironmentProfile.LoadSynchronous();
+		if (Profile != nullptr)
 		{
 			FString Error;
-			if (!ApplyParameterBundle(Bundle, Error))
+			if (!ApplyEnvironmentProfile(Profile, Error))
 			{
-				UE_LOG(LogAdaptiveEnv, Error, TEXT("Parameter bundle initialization failed. World=%s Error=%s"), *GetNameSafe(GetWorld()), *Error);
-			}
-			else
-			{
-				bM3Enabled = Settings->bEnableM3;
-				bM4Enabled = Settings->bEnableM4;
-				bM5Enabled = Settings->bEnableM5;
-				bM6Enabled = Settings->bEnableM6 && bM5Enabled;
-				bM7Enabled = Settings->bEnableM7 && bM4Enabled && bM5Enabled;
+				UE_LOG(LogAdaptiveEnv, Error, TEXT("Environment profile initialization failed. World=%s Error=%s"), *GetNameSafe(GetWorld()), *Error);
 			}
 		}
 		else
 		{
-			UE_LOG(LogAdaptiveEnv, Log, TEXT("M3, M4, and M5 disabled because no parameter bundle is configured. World=%s"), *GetNameSafe(GetWorld()));
+			UE_LOG(LogAdaptiveEnv, Error, TEXT("Adaptive ecology disabled because no environment profile is configured. World=%s"), *GetNameSafe(GetWorld()));
 		}
 	}
 
@@ -730,53 +719,31 @@ void UAEAdaptiveEnvWorldSubsystem::ResetBehaviourGrid()
 	}
 }
 
-/* Validates and atomically applies one complete M3/M4 published parameter bundle. */
-bool UAEAdaptiveEnvWorldSubsystem::ApplyParameterBundle(UAEPublishedParameterBundleAsset* Bundle, FString& OutError)
+/* Validates and atomically applies one complete M3/M4/M5 product profile. */
+bool UAEAdaptiveEnvWorldSubsystem::ApplyEnvironmentProfile(UAEAdaptiveEnvironmentProfile* Profile, FString& OutError)
 {
 	check(IsInGameThread());
 	OutError.Reset();
-	if (!IsValid(Bundle))
+	if (!IsValid(Profile))
 	{
-		OutError = TEXT("Published parameter bundle is null or invalid.");
+		OutError = TEXT("Environment profile is null or invalid.");
 		return false;
 	}
 
-	// Validate the complete transport contract before constructing either model snapshot.
-	const FAEParameterBundleValidationResult BundleResult = FAEParameterBundleService::ValidateBundle(*Bundle);
-	if (!BundleResult.IsValid())
+	const uint32 NextRevision = ActiveEnvironmentConfig.RuntimeRevision == MAX_uint32
+		? 1
+		: ActiveEnvironmentConfig.RuntimeRevision + 1;
+	FAEActiveEnvironmentConfig Candidate;
+	const FAEM2ValidationResult Validation = FAEM2ConfigService::BuildActiveConfig(*Profile, NextRevision, Candidate);
+	if (!Validation.IsValid())
 	{
-		OutError = BundleResult.ToString();
+		OutError = Validation.ToString();
 		return false;
 	}
-	FAEParameterBlockView M3Block;
-	FAEParameterBlockView M4Block;
-	FAEParameterBlockView M5Block;
-	FAEParameterBundleService::FindBlock(*Bundle, FAEParameterBundleService::M3ModelContract(), M3Block);
-	FAEParameterBundleService::FindBlock(*Bundle, FAEParameterBundleService::M4ModelContract(), M4Block);
-	FAEParameterBundleService::FindBlock(*Bundle, FAEParameterBundleService::M5ModelContract(), M5Block);
-	FAEActiveParameterSnapshot Candidate;
-	Candidate.BundleIdentity = { Bundle->BundleId, Bundle->SemanticVersion, Bundle->ContentHash };
-	const FAEM3ValidationResult M3Result = FAEM3ParameterService::BuildParameterSet(M3Block, Candidate.BundleIdentity, Candidate.M3);
-	const FAEM4ValidationResult M4Result = FAEM4ParameterService::BuildParameterSet(M4Block, Candidate.BundleIdentity, Candidate.M4);
-	const FAEM5ValidationResult M5Result = FAEM5ParameterService::BuildParameterSet(M5Block, Candidate.BundleIdentity, Candidate.M5);
-	if (!M3Result.IsValid() || !M4Result.IsValid() || !M5Result.IsValid())
-	{
-		OutError = FString::Printf(TEXT("M3=[%s] M4=[%s] M5=[%s]"), *M3Result.ToString(), *M4Result.ToString(), *M5Result.ToString());
-		return false;
-	}
-	Candidate.M3BlockId = M3Block.Block->BlockId;
-	Candidate.M3BlockVersion = M3Block.Block->BlockVersion;
-	Candidate.M3BlockHash = M3Block.Block->BlockHash;
-	Candidate.M4BlockId = M4Block.Block->BlockId;
-	Candidate.M4BlockVersion = M4Block.Block->BlockVersion;
-	Candidate.M4BlockHash = M4Block.Block->BlockHash;
-	Candidate.M5BlockId = M5Block.Block->BlockId;
-	Candidate.M5BlockVersion = M5Block.Block->BlockVersion;
-	Candidate.M5BlockHash = M5Block.Block->BlockHash;
 
-	// Commit both model parameter sets together at the Game Thread boundary.
-	const FString PreviousHash = ActiveParameters.BundleIdentity.ContentHash;
-	ActiveParameters = MoveTemp(Candidate);
+	// Commit the complete candidate once at the Game Thread boundary.
+	const FName PreviousProfileId = ActiveEnvironmentConfig.ProfileId;
+	ActiveEnvironmentConfig = MoveTemp(Candidate);
 	bM3Enabled = true;
 	bM4Enabled = true;
 	bM5Enabled = true;
@@ -809,11 +776,12 @@ bool UAEAdaptiveEnvWorldSubsystem::ApplyParameterBundle(UAEPublishedParameterBun
 	UE_LOG(
 		LogAdaptiveEnv,
 		Log,
-		TEXT("Published parameter bundle applied. World=%s OldHash=%s NewVersion=%s NewHash=%s"),
+		TEXT("Environment profile applied. World=%s OldProfile=%s NewProfile=%s ConfigVersion=%d RuntimeRevision=%u"),
 		*GetNameSafe(GetWorld()),
-		*PreviousHash,
-		*ActiveParameters.BundleIdentity.SemanticVersion,
-		*ActiveParameters.BundleIdentity.ContentHash);
+		*PreviousProfileId.ToString(),
+		*ActiveEnvironmentConfig.ProfileId.ToString(),
+		ActiveEnvironmentConfig.ConfigVersion,
+		ActiveEnvironmentConfig.RuntimeRevision);
 	return true;
 }
 
@@ -991,7 +959,7 @@ float UAEAdaptiveEnvWorldSubsystem::GetM3DebugMaximumValue(const EAEHeatmapDebug
 	switch (Mode)
 	{
 	case EAEHeatmapDebugMode::CurrentExposure:
-		return static_cast<float>(ActiveParameters.M3.ExposureDynamics.Maximum);
+		return static_cast<float>(ActiveEnvironmentConfig.M3.ExposureDynamics.Maximum);
 	case EAEHeatmapDebugMode::PassExposure:
 	case EAEHeatmapDebugMode::TravelExposure:
 	case EAEHeatmapDebugMode::DwellExposure:
@@ -1200,7 +1168,7 @@ void UAEAdaptiveEnvWorldSubsystem::UpdateM3(const float StepSeconds)
 		SimulationTimeHours,
 		DeltaSimulationHours,
 		BehaviourGrid.GetBehaviourRevision(),
-		ActiveParameters.M3))
+		ActiveEnvironmentConfig.M3))
 	{
 		bM3Enabled = false;
 		UE_LOG(LogAdaptiveEnv, Error, TEXT("M3 update failed and was disabled. World=%s BehaviourRevision=%llu"), *GetNameSafe(GetWorld()), BehaviourGrid.GetBehaviourRevision());
@@ -1248,7 +1216,7 @@ void UAEAdaptiveEnvWorldSubsystem::UpdateM4(const float StepSeconds)
 		}
 	}
 	const double DeltaSimulationHours = static_cast<double>(StepSeconds) * SimulationHoursPerRealSecond;
-	if (!ConstraintGrid.Update(Observations, DeltaSimulationHours, static_cast<uint64>(ProcessedBehaviourStepCount + 1), ActiveParameters.M4))
+	if (!ConstraintGrid.Update(Observations, DeltaSimulationHours, static_cast<uint64>(ProcessedBehaviourStepCount + 1), ActiveEnvironmentConfig.M4))
 	{
 		bM4Enabled = false;
 		bM5Enabled = false;
@@ -1376,16 +1344,16 @@ void UAEAdaptiveEnvWorldSubsystem::UpdateM5(const float StepSeconds)
 		FAEM5InputSnapshot& Input = Inputs.AddDefaulted_GetRef();
 		Input.Coordinate = Coordinate;
 		Input.Exposure = M3.CurrentExposure;
-		Input.ExposureMaximum = ActiveParameters.M3.ExposureDynamics.Maximum;
+		Input.ExposureMaximum = ActiveEnvironmentConfig.M3.ExposureDynamics.Maximum;
 		Input.ConstraintPressureRatio = M4.ConstraintPressureRatio;
 		Input.HabitatSuitabilityRatio = M4.HabitatSuitabilityRatio;
 		Input.ExposureRevision = static_cast<uint64>(FMath::Max(M3.ExposureRevision, static_cast<int64>(0)));
 		Input.ConstraintRevision = static_cast<uint64>(FMath::Max(M4.ConstraintRevision, static_cast<int64>(0)));
 		Input.SimulationStep = static_cast<uint64>(ProcessedBehaviourStepCount + 1);
-		Input.BundleIdentity = ActiveParameters.BundleIdentity;
+		Input.ConfigRevision = ActiveEnvironmentConfig.RuntimeRevision;
 	}
 	const double DeltaSimulationHours = static_cast<double>(StepSeconds) * SimulationHoursPerRealSecond;
-	if (!ResponseGrid.Update(Inputs, DeltaSimulationHours, ActiveParameters.M5, ActiveParameters.BundleIdentity))
+	if (!ResponseGrid.Update(Inputs, DeltaSimulationHours, ActiveEnvironmentConfig.M5, ActiveEnvironmentConfig.RuntimeRevision))
 	{
 		bM5Enabled = false;
 		bM6Enabled = false;
@@ -1540,7 +1508,7 @@ void UAEAdaptiveEnvWorldSubsystem::RebuildM3FromCurrentRawGrid()
 		SimulationTimeHours,
 		0.0,
 		BehaviourGrid.GetBehaviourRevision(),
-		ActiveParameters.M3))
+		ActiveEnvironmentConfig.M3))
 	{
 		bM3Enabled = false;
 	}

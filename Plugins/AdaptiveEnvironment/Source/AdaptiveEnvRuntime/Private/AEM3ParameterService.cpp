@@ -1,29 +1,5 @@
 #include "AEM3ParameterService.h"
 
-#include "AEParameterBundleTypes.h"
-
-namespace AEM3ParameterServicePrivate
-{
-	/* Reads one exact effective value from a previously validated canonical block. */
-	bool ReadParameter(
-		const FAEParameterBlock& Block,
-		const FName ParameterName,
-		double& OutValue,
-		FAEM3ValidationResult& OutResult)
-	{
-		for (const FAEPublishedParameter& Parameter : Block.Parameters)
-		{
-			if (Parameter.Name == ParameterName)
-			{
-				OutValue = Parameter.EffectiveValue;
-				return true;
-			}
-		}
-		OutResult.Add(TEXT("AE-M3-PARAM-001"), FString::Printf(TEXT("Parameter %s is missing from the validated M3 block."), *ParameterName.ToString()), ParameterName);
-		return false;
-	}
-}
-
 /* Appends one stable blocking validation issue. */
 void FAEM3ValidationResult::Add(const TCHAR* Code, const FString& Message, const FName ParameterName)
 {
@@ -40,52 +16,6 @@ FString FAEM3ValidationResult::ToString() const
 	}
 	// Join deterministic findings for one aggregate initialization log.
 	return FString::Join(Messages, TEXT(" | "));
-}
-
-/* Maps one validated M3 block into grouped values and applies cross-parameter gates. */
-FAEM3ValidationResult FAEM3ParameterService::BuildParameterSet(
-	const FAEParameterBlockView& BlockView,
-	const FAEParameterBundleIdentity& BundleIdentity,
-	FAEM3ParameterSet& OutParameterSet)
-{
-	FAEM3ValidationResult Result;
-	if (!BlockView.IsValid() || !BundleIdentity.BundleId.IsValid() || BundleIdentity.SemanticVersion.IsEmpty() || BundleIdentity.ContentHash.Len() != 64)
-	{
-		Result.Add(TEXT("AE-M3-PARAM-006"), TEXT("Bundle identity or M3 block view is invalid."));
-		return Result;
-	}
-
-	FAEM3ParameterSet Candidate;
-	auto Read = [&BlockView, &Result](const TCHAR* Name, double& Destination)
-	{
-		AEM3ParameterServicePrivate::ReadParameter(*BlockView.Block, FName(Name), Destination, Result);
-	};
-
-	// Map transport names once into stable channel indices.
-	Read(TEXT("ExposurePassReferenceCount"), Candidate.Channel(EAEExposureChannel::Pass).ReferenceValue);
-	Read(TEXT("ExposurePassWeight"), Candidate.Channel(EAEExposureChannel::Pass).Weight);
-	Read(TEXT("ExposureTravelDistanceReferenceMeters"), Candidate.Channel(EAEExposureChannel::Travel).ReferenceValue);
-	Read(TEXT("ExposureTravelDistanceWeight"), Candidate.Channel(EAEExposureChannel::Travel).Weight);
-	Read(TEXT("ExposureDwellReferenceSeconds"), Candidate.Channel(EAEExposureChannel::Dwell).ReferenceValue);
-	Read(TEXT("ExposureDwellWeight"), Candidate.Channel(EAEExposureChannel::Dwell).Weight);
-	Read(TEXT("ExposureSprintDistanceReferenceMeters"), Candidate.Channel(EAEExposureChannel::Sprint).ReferenceValue);
-	Read(TEXT("ExposureSprintWeight"), Candidate.Channel(EAEExposureChannel::Sprint).Weight);
-	Read(TEXT("ExposureCollectEventReferenceCount"), Candidate.Channel(EAEExposureChannel::Collect).ReferenceValue);
-	Read(TEXT("ExposureCollectEventWeight"), Candidate.Channel(EAEExposureChannel::Collect).Weight);
-	Read(TEXT("ExposureCombatEventReferenceCount"), Candidate.Channel(EAEExposureChannel::Combat).ReferenceValue);
-	Read(TEXT("ExposureCombatEventWeight"), Candidate.Channel(EAEExposureChannel::Combat).Weight);
-
-	// Map Exposure dynamics without retaining transport-name lookups in fixed steps.
-	Read(TEXT("ExposureMaximum"), Candidate.ExposureDynamics.Maximum);
-	Read(TEXT("ExposureHalfLifeSimulationHours"), Candidate.ExposureDynamics.HalfLifeSimulationHours);
-
-	const FAEM3ValidationResult NumericResult = ValidateParameterSet(Candidate);
-	Result.Issues.Append(NumericResult.Issues);
-	if (Result.IsValid())
-	{
-		OutParameterSet = MoveTemp(Candidate);
-	}
-	return Result;
 }
 
 /* Validates grouped numeric ranges, weight normalization, and threshold ordering. */

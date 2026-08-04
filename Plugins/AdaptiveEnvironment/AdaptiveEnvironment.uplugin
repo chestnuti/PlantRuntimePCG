@@ -1,7 +1,7 @@
 {
 	"FileVersion": 3,
-	"Version": 17,
-	"VersionName": "0.11.0",
+	"Version": 18,
+	"VersionName": "0.12.0",
 	"FriendlyName": "Adaptive Environment",
 	"Description": "Runtime adaptive environment systems driven by player behaviour.",
 	"Category": "Procedural Content Generation",
@@ -22,11 +22,6 @@
 			"TargetAllowList": [
 				"Editor"
 			]
-		},
-		{
-			"Name": "AdaptiveEnvEditor",
-			"Type": "Editor",
-			"LoadingPhase": "Default"
 		}
 	]
 }

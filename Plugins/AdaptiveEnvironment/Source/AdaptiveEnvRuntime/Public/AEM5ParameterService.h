@@ -1,7 +1,6 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "AEParameterBundleTypes.h"
 #include "AEM5Types.h"
 
 /* Collects deterministic M5 validation findings. */
@@ -17,12 +16,10 @@ struct ADAPTIVEENVRUNTIME_API FAEM5ValidationResult
 	FString ToString() const;
 };
 
-/* Maps the M5 block and evaluates ecological response without UObject access. */
+/* Validates M5 parameters and evaluates ecological response without UObject access. */
 class ADAPTIVEENVRUNTIME_API FAEM5ParameterService
 {
 public:
-	/* Maps a canonical M5 block into typed parameters and validates identity. */
-	static FAEM5ValidationResult BuildParameterSet(const FAEParameterBlockView& Block, const FAEParameterBundleIdentity& BundleIdentity, FAEM5ParameterSet& OutParameters);
 	/* Validates the numeric domain and cross-field ordering of typed values. */
 	static FAEM5ValidationResult ValidateParameterSet(const FAEM5ParameterSet& Parameters);
 	/* Fuses immutable M3/M4 inputs and advances only caller-owned M5 state. */
