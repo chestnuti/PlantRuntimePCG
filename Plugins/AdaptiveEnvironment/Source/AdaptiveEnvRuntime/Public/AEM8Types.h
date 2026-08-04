@@ -220,7 +220,7 @@ struct ADAPTIVEENVRUNTIME_API FAEBranchSegment
 	/* Stores the zero-based branch nesting order. */
 	UPROPERTY(BlueprintReadOnly, Category = "Adaptive Environment|M8")
 	int32 BranchOrder = 0;
-	/* Reports whether this segment contributes one Niagara leaf emitter. */
+	/* Reports whether this segment contributes one leaf-instance region. */
 	UPROPERTY(BlueprintReadOnly, Category = "Adaptive Environment|M8")
 	bool bSupportsLeaves = false;
 };
@@ -251,9 +251,31 @@ struct ADAPTIVEENVRUNTIME_API FAELeafEmitterDescriptor
 	/* Stores the healthy target number of leaves per metre. */
 	UPROPERTY(BlueprintReadOnly, Category = "Adaptive Environment|M8")
 	float DensityPerMeter = 0.0f;
-	/* Stores the deterministic Niagara seed for this cluster. */
+	/* Stores the deterministic leaf-instance placement seed for this cluster. */
 	UPROPERTY(BlueprintReadOnly, Category = "Adaptive Environment|M8")
 	int32 Seed = 0;
+};
+
+struct ADAPTIVEENVRUNTIME_API FAEM8LeafInstanceDescriptor
+{
+	/* Identifies the branch module whose rigid-body root owns this leaf. */
+	int64 OwnerBranchModuleId = 0;
+	/* Stores one deterministic plant-local leaf transform. */
+	FTransform PlantLocalTransform = FTransform::Identity;
+	/* Stores a stable normalized threshold consumed by the leaf material. */
+	float VisibilityThreshold = 0.0f;
+};
+
+struct ADAPTIVEENVRUNTIME_API FAEM8LeafInstanceBuilder
+{
+	/* Expands stable leaf regions into a bounded deterministic instance list. */
+	static void Build(
+		const TArray<FAELeafEmitterDescriptor>& Emitters,
+		float DensityScale,
+		float UniformScale,
+		float ScaleVariationRatio,
+		int32 MaximumLeafInstances,
+		TArray<FAEM8LeafInstanceDescriptor>& OutInstances);
 };
 
 struct ADAPTIVEENVRUNTIME_API FAEM8MeshBuffers

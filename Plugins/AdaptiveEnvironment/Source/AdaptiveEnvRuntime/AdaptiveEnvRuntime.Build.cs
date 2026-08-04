@@ -14,8 +14,7 @@ public class AdaptiveEnvRuntime : ModuleRules
 			"DeveloperSettings",
 			"GameplayTags",
 			"GeometryFramework",
-			"GeometryCore",
-			"Niagara"
+			"GeometryCore"
 		});
 
 		PrivateDependencyModuleNames.AddRange(new[]

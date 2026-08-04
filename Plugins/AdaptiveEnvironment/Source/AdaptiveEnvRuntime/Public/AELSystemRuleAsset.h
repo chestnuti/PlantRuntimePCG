@@ -59,6 +59,9 @@ public:
 	/* Caps generated leaf emitters. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Safety", meta = (ClampMin = "0"))
 	int32 MaxLeafEmitters = 1024;
+	/* Caps concrete HISM leaf instances created from all leaf regions. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Safety", meta = (ClampMin = "0"))
+	int32 MaxLeafInstances = 8192;
 	/* Caps initialized detachable branch modules per plant. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Safety", meta = (ClampMin = "0", ClampMax = "32"))
 	int32 MaxBreakableBranchModules = 8;
@@ -71,4 +74,3 @@ public:
 	/* Computes a stable hash from every effective rule and generation parameter. */
 	uint64 ComputeContentHash() const;
 };
-

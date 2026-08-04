@@ -9,10 +9,10 @@ class UAELSystemRuleAsset;
 class UAEAdaptiveEnvWorldSubsystem;
 class UBoxComponent;
 class UDynamicMeshComponent;
+class UHierarchicalInstancedStaticMeshComponent;
 class UMaterialInstanceDynamic;
 class UMaterialInterface;
-class UNiagaraComponent;
-class UNiagaraSystem;
+class UStaticMesh;
 
 UCLASS(ClassGroup = (AdaptiveEnvironment), BlueprintType, Blueprintable, meta = (BlueprintSpawnableComponent))
 class ADAPTIVEENVRUNTIME_API UAELSystemPlantComponent final : public UActorComponent
@@ -44,12 +44,21 @@ public:
 	/* Supplies the bark material applied to every initialized mesh module. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "M8|Rendering")
 	TObjectPtr<UMaterialInterface> BarkMaterial;
-	/* Supplies the optional Niagara leaf renderer consuming M8 user parameters. */
+	/* Supplies the mesh instanced inside each initialized branch module. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "M8|Rendering")
-	TObjectPtr<UNiagaraSystem> LeafSystem;
+	TObjectPtr<UStaticMesh> LeafMesh;
+	/* Supplies the optional material applied to every module-owned leaf HISM. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "M8|Rendering")
+	TObjectPtr<UMaterialInterface> LeafMaterial;
 	/* Multiplies the Rule Asset leaf target for this plant instance. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "M8|Rendering", meta = (ClampMin = "0.0"))
 	float LeafDensityScale = 1.0f;
+	/* Applies one uniform scale to every generated leaf mesh instance. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "M8|Rendering", meta = (ClampMin = "0.001"))
+	float LeafUniformScale = 1.0f;
+	/* Defines deterministic per-leaf uniform scale variation around one. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "M8|Rendering", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float LeafScaleVariationRatio = 0.2f;
 	/* Starts soft-stem wilt only after leaf shedding reaches this normalized progress. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "M8|Lifecycle", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float SoftWiltStartProgressRatio = 0.8f;
@@ -90,6 +99,9 @@ public:
 	/* Returns the current stable leaf-emitter count. */
 	UFUNCTION(BlueprintPure, Category = "Adaptive Environment|M8")
 	int32 GetLeafEmitterCount() const { return GeneratedPlant.LeafEmitters.Num(); }
+	/* Returns the current number of concrete HISM leaf instances. */
+	UFUNCTION(BlueprintPure, Category = "Adaptive Environment|M8")
+	int32 GetLeafInstanceCount() const { return LeafInstanceCount; }
 	/* Returns the deterministic logical plant hash. */
 	UFUNCTION(BlueprintPure, Category = "Adaptive Environment|M8")
 	int64 GetGeneratedContentHash() const { return static_cast<int64>(GeneratedPlant.ContentHash & MAX_int64); }
@@ -127,8 +139,12 @@ private:
 		TWeakObjectPtr<UBoxComponent> PhysicsRoot;
 		/* Displays the fixed initialized module geometry. */
 		TWeakObjectPtr<UDynamicMeshComponent> MeshComponent;
+		/* Displays leaves whose transforms remain relative to this module root. */
+		TWeakObjectPtr<UHierarchicalInstancedStaticMeshComponent> LeafInstances;
 		/* Stores the per-module bark material state. */
 		TWeakObjectPtr<UMaterialInstanceDynamic> Material;
+		/* Stores the module-level leaf material state. */
+		TWeakObjectPtr<UMaterialInstanceDynamic> LeafMaterialInstance;
 		/* Stores persistent structural state independent from M7 recovery. */
 		EAEBranchStructuralState StructuralState = EAEBranchStructuralState::Intact;
 		/* Reports whether detached geometry is still visible and physical. */
@@ -141,9 +157,9 @@ private:
 	FAELSystemResolvedPlantState ResolvePlantState(const UAEAdaptiveEnvWorldSubsystem* Subsystem) const;
 	/* Submits generated plain mesh buffers to runtime-owned components once. */
 	bool BuildFixedMeshComponents(FString& OutError);
-	/* Creates or resets the optional Niagara leaf consumer. */
-	void InitializeLeafSystem();
-	/* Applies material and Niagara values without touching initialized mesh topology. */
+	/* Creates deterministic module-owned HISM leaves from logical leaf regions. */
+	bool InitializeLeafInstances(FString& OutError);
+	/* Applies material and HISM visibility values without touching initialized topology. */
 	void ApplyResolvedVisualState(const FAELSystemResolvedPlantState& State);
 	/* Releases one runtime-owned component through normal Unreal destruction. */
 	static void DestroyOwnedComponent(UActorComponent* Component);
@@ -154,9 +170,9 @@ private:
 	/* Keeps runtime collision roots reachable by Unreal garbage collection. */
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<UBoxComponent>> OwnedPhysicsRoots;
-	/* Keeps the optional runtime Niagara consumer reachable. */
+	/* Keeps runtime module-owned HISM leaf components reachable. */
 	UPROPERTY(Transient)
-	TObjectPtr<UNiagaraComponent> LeafComponent;
+	TArray<TObjectPtr<UHierarchicalInstancedStaticMeshComponent>> OwnedLeafInstanceComponents;
 	/* Maps stable module identities to runtime visual and structural state. */
 	TMap<int64, FBranchModuleRuntime> BranchModules;
 	/* Owns immutable logical and fixed mesh output after generation. */
@@ -167,4 +183,6 @@ private:
 	bool bGenerated = false;
 	/* Reports whether attached visuals are suspended during delayed pool release. */
 	bool bWaitingForDebrisRelease = false;
+	/* Stores the total concrete HISM leaves created for the current plant. */
+	int32 LeafInstanceCount = 0;
 };

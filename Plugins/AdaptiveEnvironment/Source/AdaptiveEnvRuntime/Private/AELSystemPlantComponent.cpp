@@ -6,12 +6,10 @@
 #include "AELSystemRuleAsset.h"
 #include "Components/BoxComponent.h"
 #include "Components/DynamicMeshComponent.h"
+#include "Components/HierarchicalInstancedStaticMeshComponent.h"
 #include "DynamicMesh/DynamicMesh3.h"
 #include "GameFramework/Actor.h"
 #include "Materials/MaterialInstanceDynamic.h"
-#include "NiagaraComponent.h"
-#include "NiagaraDataInterfaceArrayFunctionLibrary.h"
-#include "NiagaraSystem.h"
 
 /* Create a non-ticking M8 component whose work remains ordered by the World subsystem. */
 UAELSystemPlantComponent::UAELSystemPlantComponent()
@@ -78,7 +76,11 @@ bool UAELSystemPlantComponent::GeneratePreview(FString& OutError)
 		ClearGeneratedPlant();
 		return false;
 	}
-	InitializeLeafSystem();
+	if (!InitializeLeafInstances(OutError))
+	{
+		ClearGeneratedPlant();
+		return false;
+	}
 	bGenerated = true;
 	ApplyResolvedVisualState(ResolvePlantState(GetWorld()->GetSubsystem<UAEAdaptiveEnvWorldSubsystem>()));
 	return true;
@@ -87,10 +89,9 @@ bool UAELSystemPlantComponent::GeneratePreview(FString& OutError)
 /* Destroy every visual owner and reset generated logical state. */
 void UAELSystemPlantComponent::ClearGeneratedPlant()
 {
-	if (LeafComponent != nullptr)
+	for (UHierarchicalInstancedStaticMeshComponent* Component : OwnedLeafInstanceComponents)
 	{
-		DestroyOwnedComponent(LeafComponent);
-		LeafComponent = nullptr;
+		DestroyOwnedComponent(Component);
 	}
 	for (UDynamicMeshComponent* Component : OwnedMeshComponents)
 	{
@@ -102,10 +103,12 @@ void UAELSystemPlantComponent::ClearGeneratedPlant()
 	}
 	OwnedMeshComponents.Reset();
 	OwnedPhysicsRoots.Reset();
+	OwnedLeafInstanceComponents.Reset();
 	BranchModules.Reset();
 	GeneratedPlant = FAELSystemGeneratedPlant();
 	bGenerated = false;
 	bWaitingForDebrisRelease = false;
+	LeafInstanceCount = 0;
 }
 
 /* Bind one immutable M7 snapshot and optionally rebuild using its internal stable identity. */
@@ -147,7 +150,7 @@ bool UAELSystemPlantComponent::BindToM7PlantSnapshot(
 	return true;
 }
 
-/* Detach one prebuilt module, enable its simplified rigid body, and shed every attached leaf. */
+/* Detach one prebuilt module so its child mesh and HISM leaves fall as one rigid assembly. */
 bool UAELSystemPlantComponent::BreakBranchModule(const int64 BranchModuleId)
 {
 	FBranchModuleRuntime* Runtime = BranchModules.Find(BranchModuleId);
@@ -189,12 +192,6 @@ bool UAELSystemPlantComponent::BreakBranchModule(const int64 BranchModuleId)
 		Runtime->Material->SetScalarParameterValue(TEXT("AE_Broken"), 1.0f);
 	}
 
-	// Tell Niagara to convert all attached leaves to free-fall particles.
-	if (LeafComponent != nullptr)
-	{
-		LeafComponent->SetVariableInt(TEXT("AE_BrokenBranchModuleId"), static_cast<int32>(BranchModuleId));
-		LeafComponent->SetVariableFloat(TEXT("AE_DetachAllLeaves"), 1.0f);
-	}
 	return true;
 }
 
@@ -236,6 +233,12 @@ int32 UAELSystemPlantComponent::ExpireDetachedBranches(
 		}
 
 		// Stop physics before destroying only the expired module-owned components.
+		if (UHierarchicalInstancedStaticMeshComponent* LeafInstances = Runtime->LeafInstances.Get())
+		{
+			LeafInstanceCount -= LeafInstances->GetInstanceCount();
+			OwnedLeafInstanceComponents.Remove(LeafInstances);
+			DestroyOwnedComponent(LeafInstances);
+		}
 		if (UDynamicMeshComponent* MeshComponent = Runtime->MeshComponent.Get())
 		{
 			OwnedMeshComponents.Remove(MeshComponent);
@@ -250,7 +253,9 @@ int32 UAELSystemPlantComponent::ExpireDetachedBranches(
 		}
 		Runtime->PhysicsRoot.Reset();
 		Runtime->MeshComponent.Reset();
+		Runtime->LeafInstances.Reset();
 		Runtime->Material.Reset();
+		Runtime->LeafMaterialInstance.Reset();
 		Runtime->bDetachedDebrisAlive = false;
 		Runtime->DetachedExpireTimeSeconds = 0.0;
 		--Remaining;
@@ -270,15 +275,14 @@ void UAELSystemPlantComponent::EnterDebrisReleaseWait()
 		{
 			Runtime.MeshComponent->SetVisibility(false, true);
 		}
+		if (!Runtime.bDetachedDebrisAlive && Runtime.LeafInstances.IsValid())
+		{
+			Runtime.LeafInstances->SetVisibility(false, true);
+		}
 		if (!Runtime.bDetachedDebrisAlive && Runtime.PhysicsRoot.IsValid())
 		{
 			Runtime.PhysicsRoot->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 		}
-	}
-	if (LeafComponent != nullptr)
-	{
-		LeafComponent->Deactivate();
-		LeafComponent->SetVisibility(false, true);
 	}
 }
 
@@ -287,10 +291,6 @@ void UAELSystemPlantComponent::CancelDebrisReleaseWait()
 {
 	bWaitingForDebrisRelease = false;
 	ApplyResolvedVisualState(LastResolvedState);
-	if (LeafComponent != nullptr)
-	{
-		LeafComponent->Activate();
-	}
 }
 
 /* Reset one actor shell only after no detached geometry remains alive. */
@@ -311,7 +311,7 @@ bool UAELSystemPlantComponent::PrepareForPool()
 	return true;
 }
 
-/* Restore stored module loss without replaying break physics or Niagara events. */
+/* Restore stored module loss without replaying break physics. */
 bool UAELSystemPlantComponent::ApplyPersistentStructuralState(
 	const FAEM8PersistentPlantState& State,
 	FString& OutError)
@@ -329,6 +329,7 @@ bool UAELSystemPlantComponent::ApplyPersistentStructuralState(
 			Runtime->StructuralState = EAEBranchStructuralState::Broken;
 			Runtime->bDetachedDebrisAlive = false;
 			if (Runtime->MeshComponent.IsValid()) Runtime->MeshComponent->SetVisibility(false, true);
+			if (Runtime->LeafInstances.IsValid()) Runtime->LeafInstances->SetVisibility(false, true);
 			if (Runtime->PhysicsRoot.IsValid()) Runtime->PhysicsRoot->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 		}
 	}
@@ -486,61 +487,83 @@ bool UAELSystemPlantComponent::BuildFixedMeshComponents(FString& OutError)
 	return !OwnedMeshComponents.IsEmpty();
 }
 
-/* Create one per-plant Niagara consumer and publish stable emitter aggregates. */
-void UAELSystemPlantComponent::InitializeLeafSystem()
+/* Expand logical leaf regions into one HISM child per branch module. */
+bool UAELSystemPlantComponent::InitializeLeafInstances(FString& OutError)
 {
-	if (LeafSystem == nullptr || GetOwner() == nullptr || GetOwner()->GetRootComponent() == nullptr)
+	if (LeafMesh == nullptr || GeneratedPlant.LeafEmitters.IsEmpty())
 	{
-		return;
+		return true;
 	}
-	LeafComponent = NewObject<UNiagaraComponent>(GetOwner());
-	LeafComponent->SetupAttachment(GetOwner()->GetRootComponent());
-	LeafComponent->SetAsset(LeafSystem);
-	LeafComponent->SetAutoActivate(true);
-	LeafComponent->RegisterComponent();
-	LeafComponent->SetVariableInt(TEXT("AE_LeafEmitterCount"), GeneratedPlant.LeafEmitters.Num());
-	LeafComponent->SetVariableInt(TEXT("AE_GenerationSeed"), GenerationSeed);
-	LeafComponent->SetVariableFloat(TEXT("AE_DetachAllLeaves"), 0.0f);
+	AActor* Owner = GetOwner();
+	if (Owner == nullptr || RuleAsset == nullptr)
+	{
+		OutError = TEXT("M8 HISM leaves require an owner and Rule Asset.");
+		return false;
+	}
 
-	// Publish stable emitter arrays consumed by the authored Niagara system.
-	TArray<FVector> Positions;
-	TArray<FQuat> Rotations;
-	TArray<float> LengthsCm;
-	TArray<float> RadiiCm;
-	TArray<float> DensitiesPerMeter;
-	TArray<int32> ModuleIds;
-	TArray<int32> Seeds;
-	Positions.Reserve(GeneratedPlant.LeafEmitters.Num());
-	Rotations.Reserve(GeneratedPlant.LeafEmitters.Num());
-	LengthsCm.Reserve(GeneratedPlant.LeafEmitters.Num());
-	RadiiCm.Reserve(GeneratedPlant.LeafEmitters.Num());
-	DensitiesPerMeter.Reserve(GeneratedPlant.LeafEmitters.Num());
-	ModuleIds.Reserve(GeneratedPlant.LeafEmitters.Num());
-	Seeds.Reserve(GeneratedPlant.LeafEmitters.Num());
-	for (const FAELeafEmitterDescriptor& Emitter : GeneratedPlant.LeafEmitters)
+	// Expand all regions deterministically before creating any UObject consumers.
+	TArray<FAEM8LeafInstanceDescriptor> Instances;
+	FAEM8LeafInstanceBuilder::Build(
+		GeneratedPlant.LeafEmitters,
+		LeafDensityScale,
+		LeafUniformScale,
+		LeafScaleVariationRatio,
+		RuleAsset->MaxLeafInstances,
+		Instances);
+	TMap<int64, TArray<FAEM8LeafInstanceDescriptor>> InstancesByModule;
+	for (const FAEM8LeafInstanceDescriptor& Instance : Instances)
 	{
-		Positions.Add(Emitter.LocalTransform.GetLocation());
-		Rotations.Add(Emitter.LocalTransform.GetRotation());
-		LengthsCm.Add(Emitter.EmitterLengthCm);
-		RadiiCm.Add(Emitter.EmitterRadiusCm);
-		DensitiesPerMeter.Add(Emitter.DensityPerMeter);
-		ModuleIds.Add(static_cast<int32>(Emitter.OwnerBranchModuleId));
-		Seeds.Add(Emitter.Seed);
+		InstancesByModule.FindOrAdd(Instance.OwnerBranchModuleId).Add(Instance);
 	}
-	UNiagaraDataInterfaceArrayFunctionLibrary::SetNiagaraArrayPosition(
-		LeafComponent, TEXT("AE_EmitterPositions"), Positions);
-	UNiagaraDataInterfaceArrayFunctionLibrary::SetNiagaraArrayQuat(
-		LeafComponent, TEXT("AE_EmitterRotations"), Rotations);
-	UNiagaraDataInterfaceArrayFunctionLibrary::SetNiagaraArrayFloat(
-		LeafComponent, TEXT("AE_EmitterLengthsCm"), LengthsCm);
-	UNiagaraDataInterfaceArrayFunctionLibrary::SetNiagaraArrayFloat(
-		LeafComponent, TEXT("AE_EmitterRadiiCm"), RadiiCm);
-	UNiagaraDataInterfaceArrayFunctionLibrary::SetNiagaraArrayFloat(
-		LeafComponent, TEXT("AE_EmitterDensitiesPerMeter"), DensitiesPerMeter);
-	UNiagaraDataInterfaceArrayFunctionLibrary::SetNiagaraArrayInt32(
-		LeafComponent, TEXT("AE_EmitterModuleIds"), ModuleIds);
-	UNiagaraDataInterfaceArrayFunctionLibrary::SetNiagaraArrayInt32(
-		LeafComponent, TEXT("AE_EmitterSeeds"), Seeds);
+
+	// Create one movable HISM beneath each compatible rigid-body module root.
+	TArray<int64> ModuleIds;
+	InstancesByModule.GetKeys(ModuleIds);
+	ModuleIds.Sort();
+	for (const int64 ModuleId : ModuleIds)
+	{
+		FBranchModuleRuntime* Runtime = BranchModules.Find(ModuleId);
+		if (Runtime == nullptr || !Runtime->PhysicsRoot.IsValid())
+		{
+			OutError = FString::Printf(TEXT("M8 leaf instances reference missing branch module %lld."), ModuleId);
+			return false;
+		}
+		UHierarchicalInstancedStaticMeshComponent* LeafInstances =
+			NewObject<UHierarchicalInstancedStaticMeshComponent>(Owner);
+		LeafInstances->SetupAttachment(Runtime->PhysicsRoot.Get());
+		LeafInstances->SetMobility(EComponentMobility::Movable);
+		LeafInstances->SetStaticMesh(LeafMesh);
+		LeafInstances->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		LeafInstances->SetCanEverAffectNavigation(false);
+		LeafInstances->SetNumCustomDataFloats(1);
+		LeafInstances->RegisterComponent();
+
+		const FTransform ModulePlantLocalTransform = Runtime->PhysicsRoot->GetRelativeTransform();
+		for (const FAEM8LeafInstanceDescriptor& Instance : InstancesByModule[ModuleId])
+		{
+			const FTransform ModuleLocalTransform =
+				Instance.PlantLocalTransform.GetRelativeTransform(ModulePlantLocalTransform);
+			const int32 InstanceIndex = LeafInstances->AddInstance(ModuleLocalTransform, false);
+			LeafInstances->SetCustomDataValue(
+				InstanceIndex,
+				0,
+				Instance.VisibilityThreshold,
+				false);
+		}
+		LeafInstances->MarkRenderStateDirty();
+
+		UMaterialInstanceDynamic* LeafMaterialInstance = nullptr;
+		if (LeafMaterial != nullptr)
+		{
+			LeafMaterialInstance = UMaterialInstanceDynamic::Create(LeafMaterial, LeafInstances);
+			LeafInstances->SetMaterial(0, LeafMaterialInstance);
+		}
+		Runtime->LeafInstances = LeafInstances;
+		Runtime->LeafMaterialInstance = LeafMaterialInstance;
+		OwnedLeafInstanceComponents.Add(LeafInstances);
+		LeafInstanceCount += LeafInstances->GetInstanceCount();
+	}
+	return true;
 }
 
 /* Map M7 or manual lifecycle state to reversible visuals while preserving broken modules. */
@@ -586,9 +609,14 @@ void UAELSystemPlantComponent::ApplyResolvedVisualState(const FAELSystemResolved
 		if (Runtime.MeshComponent.IsValid())
 		{
 			const bool bModuleVisible = State.bVisible
+				&& (!bWaitingForDebrisRelease || Runtime.bDetachedDebrisAlive)
 				&& !(Runtime.StructuralState == EAEBranchStructuralState::Broken
 					&& !Runtime.bDetachedDebrisAlive);
 			Runtime.MeshComponent->SetVisibility(bModuleVisible, true);
+			if (Runtime.LeafInstances.IsValid())
+			{
+				Runtime.LeafInstances->SetVisibility(bModuleVisible, true);
+			}
 		}
 		if (Runtime.Material.IsValid())
 		{
@@ -599,16 +627,21 @@ void UAELSystemPlantComponent::ApplyResolvedVisualState(const FAELSystemResolved
 				TEXT("AE_DeadWood"),
 				Runtime.StructuralState == EAEBranchStructuralState::DeadWood ? 1.0f : 0.0f);
 		}
-	}
-
-	// Publish aggregate leaf controls; individual leaf replay remains deliberately unspecified.
-	if (LeafComponent != nullptr)
-	{
-		LeafComponent->SetVisibility(State.bVisible, true);
-		LeafComponent->SetVariableFloat(TEXT("AE_HealthRatio"), Health);
-		LeafComponent->SetVariableFloat(TEXT("AE_LeafDensityScale"), LeafDensityScale * FMath::Clamp(LeafRegrowth, 0.0f, 1.0f));
-		LeafComponent->SetVariableFloat(TEXT("AE_SheddingRatio"), bDeclining ? Progress : 0.0f);
-		LeafComponent->SetVariableFloat(TEXT("AE_WiltRatio"), WiltRatio);
+		if (Runtime.LeafMaterialInstance.IsValid())
+		{
+			Runtime.LeafMaterialInstance->SetScalarParameterValue(TEXT("AE_HealthRatio"), Health);
+			Runtime.LeafMaterialInstance->SetScalarParameterValue(TEXT("AE_LifecycleProgressRatio"), Progress);
+			Runtime.LeafMaterialInstance->SetScalarParameterValue(
+				TEXT("AE_LeafRetentionRatio"),
+				FMath::Clamp(LeafRegrowth, 0.0f, 1.0f));
+			Runtime.LeafMaterialInstance->SetScalarParameterValue(TEXT("AE_WiltRatio"), WiltRatio);
+			Runtime.LeafMaterialInstance->SetScalarParameterValue(
+				TEXT("AE_DeadWood"),
+				Runtime.StructuralState == EAEBranchStructuralState::DeadWood ? 1.0f : 0.0f);
+			Runtime.LeafMaterialInstance->SetScalarParameterValue(
+				TEXT("AE_Broken"),
+				Runtime.StructuralState == EAEBranchStructuralState::Broken ? 1.0f : 0.0f);
+		}
 	}
 }
 

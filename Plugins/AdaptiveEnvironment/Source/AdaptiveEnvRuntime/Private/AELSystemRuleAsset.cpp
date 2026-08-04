@@ -10,7 +10,8 @@ bool UAELSystemRuleAsset::Validate(FString& OutError) const
 		return false;
 	}
 	if (IterationCount < 0 || MaxIterations < 0 || MaxSymbolCount <= 0
-		|| MaxBranchSegments <= 0 || MaxLeafEmitters < 0 || MaxBreakableBranchModules < 0)
+		|| MaxBranchSegments <= 0 || MaxLeafEmitters < 0 || MaxLeafInstances < 0
+		|| MaxBreakableBranchModules < 0)
 	{
 		OutError = TEXT("M8 safety limits are invalid.");
 		return false;
@@ -48,6 +49,7 @@ uint64 UAELSystemRuleAsset::ComputeContentHash() const
 	Hash = HashCombineFast(Hash, GetTypeHash(BranchAngleDegrees));
 	Hash = HashCombineFast(Hash, GetTypeHash(RadialSegments));
 	Hash = HashCombineFast(Hash, GetTypeHash(LeafDensityPerMeter));
+	Hash = HashCombineFast(Hash, GetTypeHash(MaxLeafInstances));
 	Hash = HashCombineFast(Hash, GetTypeHash(static_cast<uint8>(StructuralResponse)));
 	for (const FAELSystemProductionRule& Rule : ProductionRules)
 	{
@@ -57,4 +59,3 @@ uint64 UAELSystemRuleAsset::ComputeContentHash() const
 	}
 	return Hash;
 }
-

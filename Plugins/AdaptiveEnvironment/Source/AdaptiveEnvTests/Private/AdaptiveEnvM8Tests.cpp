@@ -72,6 +72,39 @@ bool FAEM8ManualGenerationHasNoUpstreamInputTest::RunTest(const FString& Paramet
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FAEM8LeafInstanceDeterminismTest,
+	"AdaptiveEnv.M8.Leaves.HISMInstanceDeterminism",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+/* Verify equal leaf regions create stable bounded module-owned HISM transforms. */
+bool FAEM8LeafInstanceDeterminismTest::RunTest(const FString& Parameters)
+{
+	FAELeafEmitterDescriptor Emitter;
+	Emitter.OwnerBranchModuleId = 3;
+	Emitter.LocalTransform = FTransform(FRotator(0.0f, 25.0f, 0.0f), FVector(10.0f, 20.0f, 100.0f));
+	Emitter.EmitterLengthCm = 100.0f;
+	Emitter.EmitterRadiusCm = 4.0f;
+	Emitter.DensityPerMeter = 6.0f;
+	Emitter.Seed = 47;
+
+	TArray<FAEM8LeafInstanceDescriptor> First;
+	TArray<FAEM8LeafInstanceDescriptor> Second;
+	FAEM8LeafInstanceBuilder::Build({Emitter}, 1.0f, 1.0f, 0.2f, 4, First);
+	FAEM8LeafInstanceBuilder::Build({Emitter}, 1.0f, 1.0f, 0.2f, 4, Second);
+	TestEqual(TEXT("Concrete leaf count respects the hard cap"), First.Num(), 4);
+	TestEqual(TEXT("Equal inputs repeat the concrete leaf count"), Second.Num(), First.Num());
+	for (int32 Index = 0; Index < First.Num(); ++Index)
+	{
+		TestEqual(TEXT("Every leaf retains its owning branch module"), First[Index].OwnerBranchModuleId, int64(3));
+		TestTrue(TEXT("Equal inputs repeat leaf transforms"), First[Index].PlantLocalTransform.Equals(
+			Second[Index].PlantLocalTransform, 0.0f));
+		TestEqual(TEXT("Equal inputs repeat visibility thresholds"),
+			First[Index].VisibilityThreshold, Second[Index].VisibilityThreshold);
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FAEM8SnapshotBindingAvoidsManualIdentityTest,
 	"AdaptiveEnv.M8.Integration.SnapshotBindingAvoidsManualIdentity",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
