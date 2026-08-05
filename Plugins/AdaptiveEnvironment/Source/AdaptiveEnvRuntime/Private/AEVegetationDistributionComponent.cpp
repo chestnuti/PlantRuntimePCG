@@ -248,7 +248,39 @@ bool UAEVegetationDistributionComponent::BuildSpeciesRuntime(
 		Transform.SetScale3D(FVector::ZeroVector);
 		OutRuntime.Instances->AddInstance(Transform, true);
 	}
+	RebuildBiomeWeightCache(Profile, OutRuntime);
 	return OutRuntime.Candidates.Num() > 0;
+}
+
+/* Sample each occupied shared Grid Cell once and cache the selected biome weight. */
+void UAEVegetationDistributionComponent::RebuildBiomeWeightCache(
+	const UAEPlantSpeciesProfile& Profile,
+	FSpeciesRuntime& Runtime)
+{
+	const int32 CellCount = CachedGridDimensions.X * CachedGridDimensions.Y;
+	Runtime.BiomeWeightsByCell.Init(1.0f, CellCount);
+	Runtime.BiomeCacheRevision = Profile.BiomeMap != nullptr ? Profile.BiomeMap->GetRuntimeRevision() : 0;
+	if (Profile.BiomeMap == nullptr || CachedGridDimensions.X <= 0 || CachedGridDimensions.Y <= 0)
+	{
+		return;
+	}
+	const FVector2D GridSize = CachedGridBounds.GetSize();
+	const FVector2D CellSize(
+		GridSize.X / CachedGridDimensions.X,
+		GridSize.Y / CachedGridDimensions.Y);
+	for (int32 CellIndex = 0; CellIndex < Runtime.CandidateIndicesByCell.Num(); ++CellIndex)
+	{
+		if (Runtime.CandidateIndicesByCell[CellIndex].IsEmpty())
+		{
+			continue;
+		}
+		const FIntPoint Coordinate(CellIndex % CachedGridDimensions.X, CellIndex / CachedGridDimensions.X);
+		const FVector WorldCenter(
+			CachedGridBounds.Min.X + (Coordinate.X + 0.5) * CellSize.X,
+			CachedGridBounds.Min.Y + (Coordinate.Y + 0.5) * CellSize.Y,
+			0.0);
+		Runtime.BiomeWeightsByCell[CellIndex] = Profile.BiomeMap->SampleBiomeWeight(Profile.BiomeId, WorldCenter);
+	}
 }
 
 /* Advances the union of source Dirty, distribution Dirty, and active transitions. */
@@ -269,6 +301,15 @@ void UAEVegetationDistributionComponent::AdvanceM7(
 		if (Profile == nullptr)
 		{
 			continue;
+		}
+		const int32 CurrentBiomeRevision = Profile->BiomeMap != nullptr ? Profile->BiomeMap->GetRuntimeRevision() : 0;
+		if (Runtime.BiomeCacheRevision != CurrentBiomeRevision)
+		{
+			RebuildBiomeWeightCache(*Profile, Runtime);
+			for (int32 CellIndex = 0; CellIndex < Runtime.CandidateIndicesByCell.Num(); ++CellIndex)
+			{
+				if (!Runtime.CandidateIndicesByCell[CellIndex].IsEmpty()) Runtime.DistributionDirtyCells.Add(CellIndex);
+			}
 		}
 		TSet<int32> CandidateCells = Runtime.ActiveTransitionCells;
 		CandidateCells.Append(Runtime.DistributionDirtyCells);
@@ -304,7 +345,9 @@ void UAEVegetationDistributionComponent::AdvanceM7(
 			{
 				const FAEM7CandidatePoint& Candidate = Runtime.Candidates[PointIndex];
 				FAEPlantInstanceSnapshot& Snapshot = Runtime.Snapshots[PointIndex];
-				const float BiomeWeight = Profile->BiomeMap != nullptr ? Profile->BiomeMap->SampleWeight(Candidate.Location) : 1.0f;
+				const float BiomeWeight = Runtime.BiomeWeightsByCell.IsValidIndex(CellIndex)
+					? Runtime.BiomeWeightsByCell[CellIndex]
+					: 1.0f;
 				const float DistributionRatio = FMath::Clamp(M4.HabitatSuitabilityRatio * BiomeWeight, 0.0f, 1.0f);
 				const bool bStructurallyEligible = Candidate.SelectionKey < DistributionRatio;
 				const float TargetHealth = FMath::Clamp(

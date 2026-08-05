@@ -152,6 +152,7 @@ void UAEAdaptiveEnvWorldSubsystem::Deinitialize()
 	M8PersistentPlantStates.Reset();
 	M8UpdateCursor = 0;
 	RegisteredMoistureSources.Reset();
+	ActiveMoistureTexture = nullptr;
 	PendingMoistureSourceAdds.Reset();
 	PendingMoistureSourceRemoves.Reset();
 	PendingSamples.Reset();
@@ -744,6 +745,7 @@ bool UAEAdaptiveEnvWorldSubsystem::ApplyEnvironmentProfile(UAEAdaptiveEnvironmen
 	// Commit the complete candidate once at the Game Thread boundary.
 	const FName PreviousProfileId = ActiveEnvironmentConfig.ProfileId;
 	ActiveEnvironmentConfig = MoveTemp(Candidate);
+	ActiveMoistureTexture = ActiveEnvironmentConfig.MoistureTexture.Get();
 	bM3Enabled = true;
 	bM4Enabled = true;
 	bM5Enabled = true;
@@ -1206,7 +1208,11 @@ void UAEAdaptiveEnvWorldSubsystem::UpdateM4(const float StepSeconds)
 		const FIntPoint Coordinate(Index % Dimensions.X, Index / Dimensions.X);
 		FAEWorldConstraintObservation Observation;
 		if (FAEWorldConstraintProvider::SampleCell(*World, Coordinate, ConstraintGrid.GetCellWorldCenter(Coordinate),
-			Settings->M4GroundTraceHalfHeightCm, Settings->M4DefaultMoistureRatio, RegisteredMoistureSources, Observation))
+			Settings->M4GroundTraceHalfHeightCm,
+			static_cast<float>(ActiveEnvironmentConfig.DefaultMoistureRatio),
+			ActiveMoistureTexture,
+			RegisteredMoistureSources,
+			Observation))
 		{
 			Observations.Add(MoveTemp(Observation));
 		}

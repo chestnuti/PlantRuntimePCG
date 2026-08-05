@@ -48,7 +48,7 @@ bool FAESettingsDefaultsTest::RunTest(const FString& Parameters)
 	TestTrue(
 		TEXT("Optional environment profile path is syntactically valid"),
 		Settings->EnvironmentProfile.IsNull() || Settings->EnvironmentProfile.ToSoftObjectPath().IsValid());
-	TestEqual(TEXT("Settings schema"), Settings->SettingsSchemaVersion, 12);
+	TestEqual(TEXT("Settings schema"), Settings->SettingsSchemaVersion, 13);
 	TestEqual(TEXT("M6 visible threshold"), Settings->M6VisibleDamageThresholdRatio, 0.15f);
 	TestEqual(TEXT("M6 full-path threshold"), Settings->M6FullPathDamageThresholdRatio, 0.65f);
 	TestEqual(TEXT("M6 formation rate"), Settings->M6FormationRatePerSimulationHour, 0.20f);
@@ -70,7 +70,7 @@ bool FAEDataAssetSchemaTest::RunTest(const FString& Parameters)
 {
 	const UAEAdaptiveEnvironmentProfile* Profile = NewObject<UAEAdaptiveEnvironmentProfile>();
 	TestEqual(TEXT("Default Profile identity"), Profile->ProfileId, FName(TEXT("Default")));
-	TestEqual(TEXT("Profile contract version"), Profile->ConfigVersion, 1);
+	TestEqual(TEXT("Profile contract version"), Profile->ConfigVersion, 2);
 	TestEqual(TEXT("Default M3 maximum"), Profile->M3.MaximumExposure, 1.0);
 	TestEqual(TEXT("Default M4 unsuitable slope"), Profile->M4.SlopeUnsuitableDegrees, 45.0);
 	TestEqual(TEXT("Default M5 Damage rate"), Profile->M5.DamageMaximumRatePerSimulationHour, 0.20);

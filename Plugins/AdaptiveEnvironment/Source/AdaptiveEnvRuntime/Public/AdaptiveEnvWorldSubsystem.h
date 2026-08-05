@@ -18,6 +18,7 @@ class UAEHeatmapRendererComponent;
 class UAELSystemPlantComponent;
 class UAERepresentativePlantManagerComponent;
 class UAEMoistureSourceComponent;
+class UAEMoistureTextureAsset;
 class UAEPathHeatmapRendererComponent;
 class UAEVegetationDistributionComponent;
 class UAEAdaptiveEnvironmentProfile;
@@ -379,6 +380,9 @@ private:
 	TSet<int32> PendingM7BaselineCellIndices;
 	/* Stores active registered M4 moisture sources. */
 	TArray<TWeakObjectPtr<UAEMoistureSourceComponent>> RegisteredMoistureSources;
+	/* Keeps the atomically applied M4 moisture field reachable during runtime sampling. */
+	UPROPERTY(Transient)
+	TObjectPtr<UAEMoistureTextureAsset> ActiveMoistureTexture;
 	/* Stores M4 moisture sources awaiting safe registration. */
 	TArray<TWeakObjectPtr<UAEMoistureSourceComponent>> PendingMoistureSourceAdds;
 	/* Stores M4 moisture sources awaiting safe removal. */

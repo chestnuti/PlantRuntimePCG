@@ -4,6 +4,7 @@
 #include "AEM3ParameterService.h"
 #include "AEM4ParameterService.h"
 #include "AEM5ParameterService.h"
+#include "AEWorldScalarFieldAsset.h"
 
 void FAEM2ValidationResult::Add(const TCHAR* Code, const FString& Message)
 {
@@ -29,6 +30,8 @@ namespace AEM2ConfigServicePrivate
 		Candidate.ProfileId = Profile.ProfileId;
 		Candidate.ConfigVersion = Profile.ConfigVersion;
 		Candidate.RuntimeRevision = RuntimeRevision;
+		Candidate.DefaultMoistureRatio = Profile.M4.DefaultMoistureRatio;
+		Candidate.MoistureTexture = Profile.M4.MoistureTexture;
 
 		CopyChannel(Profile.M3.Pass, Candidate.M3.Channel(EAEExposureChannel::Pass));
 		CopyChannel(Profile.M3.Travel, Candidate.M3.Channel(EAEExposureChannel::Travel));
@@ -81,7 +84,7 @@ FAEM2ValidationResult FAEM2ConfigService::BuildActiveConfig(const UAEAdaptiveEnv
 	{
 		Result.Add(TEXT("AE-M2-CONFIG-001"), TEXT("ProfileId must not be None."));
 	}
-	if (Profile.ConfigVersion != 1)
+	if (Profile.ConfigVersion != 2)
 	{
 		Result.Add(TEXT("AE-M2-CONFIG-002"), FString::Printf(TEXT("ConfigVersion %d is not supported."), Profile.ConfigVersion));
 	}
@@ -91,6 +94,19 @@ FAEM2ValidationResult FAEM2ConfigService::BuildActiveConfig(const UAEAdaptiveEnv
 	}
 
 	FAEActiveEnvironmentConfig Candidate = AEM2ConfigServicePrivate::Convert(Profile, NextRuntimeRevision);
+	if (!FMath::IsFinite(Profile.M4.DefaultMoistureRatio)
+		|| Profile.M4.DefaultMoistureRatio < 0.0 || Profile.M4.DefaultMoistureRatio > 1.0)
+	{
+		Result.Add(TEXT("AE-M2-CONFIG-005"), TEXT("M4 DefaultMoistureRatio must be finite and in [0,1]."));
+	}
+	if (Profile.M4.MoistureTexture != nullptr)
+	{
+		FString FieldError;
+		if (!Profile.M4.MoistureTexture->IsValidField(FieldError))
+		{
+			Result.Add(TEXT("AE-M2-CONFIG-006"), FString::Printf(TEXT("M4 moisture field is invalid: %s"), *FieldError));
+		}
+	}
 	AEM2ConfigServicePrivate::AppendStageIssues(TEXT("M3"), FAEM3ParameterService::ValidateParameterSet(Candidate.M3).ToString(), Result);
 	AEM2ConfigServicePrivate::AppendStageIssues(TEXT("M4"), FAEM4ParameterService::ValidateParameterSet(Candidate.M4).ToString(), Result);
 	AEM2ConfigServicePrivate::AppendStageIssues(TEXT("M5"), FAEM5ParameterService::ValidateParameterSet(Candidate.M5).ToString(), Result);

@@ -5,8 +5,12 @@
 #include "AEAdaptiveEnvironmentProfile.h"
 #include "AEActiveEnvironmentConfig.h"
 #include "AEM2ConfigService.h"
+#include "AEPlantBiomeMapAsset.h"
 #include "AdaptiveEnvWorldSubsystem.h"
+#include "AdaptiveEnvSettings.h"
+#include "AEWorldScalarFieldAsset.h"
 #include "Engine/World.h"
+#include "UObject/UnrealType.h"
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAEM2DefaultProfileTest, "AdaptiveEnv.M2.Profile.DefaultMapping", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
@@ -20,7 +24,69 @@ bool FAEM2DefaultProfileTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("Runtime revision maps"), Config.RuntimeRevision, static_cast<uint32>(1));
 	TestTrue(TEXT("Named Pass channel maps"), FMath::IsNearlyEqual(Config.M3.Channel(EAEExposureChannel::Pass).Weight, 0.20));
 	TestTrue(TEXT("M4 terrain setting maps"), FMath::IsNearlyEqual(Config.M4.ConstraintResponse.SlopeUnsuitableDegrees, 45.0));
+	TestTrue(TEXT("M4 default moisture maps"), FMath::IsNearlyEqual(Config.DefaultMoistureRatio, 0.5));
 	TestTrue(TEXT("M5 damage setting maps"), FMath::IsNearlyEqual(Config.M5.Damage.MaximumRatePerSimulationHour, 0.20));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAEM2ConfiguredProfileLoadTest, "AdaptiveEnv.M2.Profile.ConfiguredAssetLoads", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FAEM2ConfiguredProfileLoadTest::RunTest(const FString& Parameters)
+{
+	const UAdaptiveEnvSettings* Settings = GetDefault<UAdaptiveEnvSettings>();
+	UAEAdaptiveEnvironmentProfile* Profile = Settings->EnvironmentProfile.LoadSynchronous();
+	TestNotNull(TEXT("Configured product profile loads"), Profile);
+	if (Profile == nullptr) return false;
+	FAEActiveEnvironmentConfig Config;
+	const FAEM2ValidationResult Result = FAEM2ConfigService::BuildActiveConfig(*Profile, 1, Config);
+	TestTrue(TEXT("Configured product profile validates"), Result.IsValid());
+	TestEqual(TEXT("Configured profile uses current schema"), Profile->ConfigVersion, 2);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAEM2MoistureFieldValidationTest, "AdaptiveEnv.M2.Profile.MoistureFieldValidation", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FAEM2MoistureFieldValidationTest::RunTest(const FString& Parameters)
+{
+	UAEAdaptiveEnvironmentProfile* Profile = NewObject<UAEAdaptiveEnvironmentProfile>();
+	Profile->M4.MoistureTexture = NewObject<UAEMoistureTextureAsset>(Profile);
+	FAEActiveEnvironmentConfig Preserved;
+	Preserved.ProfileId = TEXT("Preserved");
+	Preserved.RuntimeRevision = 4;
+	const FAEM2ValidationResult Invalid = FAEM2ConfigService::BuildActiveConfig(*Profile, 5, Preserved);
+	TestFalse(TEXT("Unbaked moisture field rejects the complete profile"), Invalid.IsValid());
+	TestEqual(TEXT("Rejected field preserves active profile"), Preserved.ProfileId, FName(TEXT("Preserved")));
+	Profile->M4.MoistureTexture->BakedDimensions = FIntPoint(1, 1);
+	Profile->M4.MoistureTexture->BakedSamples = {32768};
+	FAEActiveEnvironmentConfig Valid;
+	TestTrue(TEXT("Valid baked moisture field commits"), FAEM2ConfigService::BuildActiveConfig(*Profile, 5, Valid).IsValid());
+	TestTrue(TEXT("Committed field identity maps"), Valid.MoistureTexture.Get() == Profile->M4.MoistureTexture);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAEDedicatedTextureInputTypesTest, "AdaptiveEnv.M2.Profile.DedicatedTextureInputTypes", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FAEDedicatedTextureInputTypesTest::RunTest(const FString& Parameters)
+{
+	const FObjectProperty* MoistureProperty = FindFProperty<FObjectProperty>(
+		FAEM4UserConfig::StaticStruct(),
+		GET_MEMBER_NAME_CHECKED(FAEM4UserConfig, MoistureTexture));
+	const FObjectProperty* BiomeProperty = FindFProperty<FObjectProperty>(
+		UAEPlantBiomeMapAsset::StaticClass(),
+		GET_MEMBER_NAME_CHECKED(UAEPlantBiomeMapAsset, BiomeTexture));
+	TestNotNull(TEXT("M4 exposes a dedicated moisture texture input"), MoistureProperty);
+	TestNotNull(TEXT("M7 exposes a dedicated biome texture input"), BiomeProperty);
+	if (MoistureProperty != nullptr)
+	{
+		TestEqual(TEXT("M4 accepts only moisture texture assets"), MoistureProperty->PropertyClass.Get(), UAEMoistureTextureAsset::StaticClass());
+	}
+	if (BiomeProperty != nullptr)
+	{
+		TestEqual(TEXT("M7 accepts only biome texture assets"), BiomeProperty->PropertyClass.Get(), UAEBiomeTextureAsset::StaticClass());
+	}
+	TestFalse(TEXT("Moisture and biome texture asset types are mutually exclusive"),
+		UAEMoistureTextureAsset::StaticClass()->IsChildOf(UAEBiomeTextureAsset::StaticClass())
+		|| UAEBiomeTextureAsset::StaticClass()->IsChildOf(UAEMoistureTextureAsset::StaticClass()));
 	return true;
 }
 

@@ -3,6 +3,8 @@
 #include "CoreMinimal.h"
 #include "AEM2ConfigTypes.generated.h"
 
+class UAEMoistureTextureAsset;
+
 /* Configures one named M3 behavior channel for product tuning. */
 USTRUCT(BlueprintType)
 struct ADAPTIVEENVRUNTIME_API FAEExposureChannelConfig
@@ -49,6 +51,14 @@ USTRUCT(BlueprintType)
 struct ADAPTIVEENVRUNTIME_API FAEM4UserConfig
 {
 	GENERATED_BODY()
+
+	/* Supplies normalized moisture when the texture and local volumes provide no value. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Moisture Input", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	double DefaultMoistureRatio = 0.5;
+
+	/* Supplies the dedicated baked R-channel moisture texture below local moisture volumes. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Moisture Input")
+	TObjectPtr<UAEMoistureTextureAsset> MoistureTexture;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Terrain", meta = (ClampMin = "0.0", ClampMax = "90.0", Units = "deg")) double SlopeFullySuitableDegrees = 10.0;
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Terrain", meta = (ClampMin = "0.0", ClampMax = "90.0", Units = "deg")) double SlopeUnsuitableDegrees = 45.0;

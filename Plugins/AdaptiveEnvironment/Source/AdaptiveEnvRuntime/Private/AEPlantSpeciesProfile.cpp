@@ -18,6 +18,11 @@ bool UAEPlantSpeciesProfile::IsValidProfile(FString& OutError) const
 	{
 		return false;
 	}
+	if (BiomeMap != nullptr && BiomeMap->FindBiome(BiomeId) == nullptr)
+	{
+		OutError = TEXT("BiomeId must identify one definition in BiomeMap.");
+		return false;
+	}
 	OutError.Reset();
 	return true;
 }

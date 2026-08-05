@@ -83,6 +83,10 @@ private:
 		TBitArray<> InitializedHealth;
 		/* Groups candidate indices by shared row-major Cell index. */
 		TArray<TArray<int32>> CandidateIndicesByCell;
+		/* Caches one biome density weight per shared Grid Cell. */
+		TArray<float> BiomeWeightsByCell;
+		/* Stores the biome-map revision represented by BiomeWeightsByCell. */
+		int32 BiomeCacheRevision = 0;
 		/* Tracks Cells whose health has not reached its current target. */
 		TSet<int32> ActiveTransitionCells;
 		/* Tracks Cells whose distribution inputs require reevaluation. */
@@ -93,6 +97,8 @@ private:
 
 	/* Builds one stable species pool and HISM owner. */
 	bool BuildSpeciesRuntime(UAEPlantSpeciesProfile& Profile, FSpeciesRuntime& OutRuntime, int32 SpeciesIndex);
+	/* Rebuilds one species' biome weights once per occupied shared Grid Cell. */
+	void RebuildBiomeWeightCache(const UAEPlantSpeciesProfile& Profile, FSpeciesRuntime& Runtime);
 	/* Destroys only dynamically owned HISM components. */
 	void DestroyOwnedInstances();
 	/* Maps one shared Cell coordinate to row-major storage. */

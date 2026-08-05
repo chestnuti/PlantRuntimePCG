@@ -5,6 +5,7 @@
 #include "AEPlantBiomeMapAsset.h"
 #include "AEPlantDistributionService.h"
 #include "AEPlantSpeciesProfile.h"
+#include "AEWorldScalarFieldAsset.h"
 #include "AEWorldConstraintProvider.h"
 #include "AEM7Types.h"
 #include "Components/BoxComponent.h"
@@ -102,19 +103,34 @@ bool FAEM7SeedAndStableSelectionTest::RunTest(const FString& Parameters)
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FAEM7BiomeMapSamplingTest,
-	"AdaptiveEnv.M7.BiomeMap.BilinearSampling",
+	"AdaptiveEnv.M7.BiomeMap.RangeAndGradient",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
-/* Verifies species biome weights use bilinear world-space sampling. */
+/* Verifies named biome ranges preserve a plateau and smooth both outer edges. */
 bool FAEM7BiomeMapSamplingTest::RunTest(const FString& Parameters)
 {
+	UAEBiomeTextureAsset* Field = NewObject<UAEBiomeTextureAsset>();
+	Field->BakedDimensions = FIntPoint(2, 1);
+	Field->WorldMin = FVector2D::ZeroVector;
+	Field->WorldMax = FVector2D(100.0, 100.0);
+	Field->bFlipVerticalAxis = false;
+	Field->BakedSamples = {0, 65535};
 	UAEPlantBiomeMapAsset* Map = NewObject<UAEPlantBiomeMapAsset>();
-	Map->Dimensions = FIntPoint(2, 2);
-	Map->WorldMin = FVector2D::ZeroVector;
-	Map->WorldMax = FVector2D(100.0, 100.0);
-	Map->Weights = {0.0f, 1.0f, 1.0f, 0.0f};
-	TestTrue(TEXT("Centre bilinear sample is one half"), FMath::IsNearlyEqual(
-		Map->SampleWeight(FVector(50.0, 50.0, 0.0)), 0.5f));
+	Map->BiomeTexture = Field;
+	FAEBiomeRangeDefinition& Biome = Map->Biomes.AddDefaulted_GetRef();
+	Biome.BiomeId = TEXT("Forest");
+	Biome.LowerBoundRatio = 0.4f;
+	Biome.UpperBoundRatio = 0.6f;
+	Biome.GradientWidthRatio = 0.2f;
+	FString Error;
+	TestTrue(TEXT("Biome map validates"), Map->IsValidMap(Error));
+	TestTrue(TEXT("Core interval has full density"), FMath::IsNearlyEqual(
+		Map->SampleBiomeWeight(TEXT("Forest"), FVector(50.0, 50.0, 0.0)), 1.0f, 1.0e-4f));
+	TestTrue(TEXT("Lower gradient is smooth"), FMath::IsNearlyEqual(
+		UAEPlantBiomeMapAsset::EvaluateBiomeWeight(0.3f, Biome), 0.5f, 1.0e-4f));
+	Biome.GradientWidthRatio = 0.0f;
+	TestTrue(TEXT("Zero gradient uses a hard boundary"), FMath::IsNearlyZero(
+		UAEPlantBiomeMapAsset::EvaluateBiomeWeight(0.3f, Biome)));
 	return true;
 }
 

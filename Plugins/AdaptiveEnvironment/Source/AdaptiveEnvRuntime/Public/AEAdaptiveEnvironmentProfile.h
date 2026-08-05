@@ -16,7 +16,7 @@ public:
 	FName ProfileId = TEXT("Default");
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Version")
-	int32 ConfigVersion = 1;
+	int32 ConfigVersion = 2;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "M3 Exposure")
 	FAEM3UserConfig M3;

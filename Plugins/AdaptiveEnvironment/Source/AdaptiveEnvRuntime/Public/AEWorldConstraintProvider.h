@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 
 class UAEMoistureSourceComponent;
+class UAEMoistureTextureAsset;
 class AActor;
 class UWorld;
 
@@ -52,6 +53,7 @@ public:
 		const FVector& XYCenter,
 		float TraceHalfHeightCm,
 		float DefaultMoistureRatio,
+		const UAEMoistureTextureAsset* MoistureTexture,
 		const TArray<TWeakObjectPtr<UAEMoistureSourceComponent>>& Sources,
 		FAEWorldConstraintObservation& OutObservation);
 };

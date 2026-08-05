@@ -118,10 +118,6 @@ public:
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "M4", meta = (ClampMin = "1.0"))
 	float M4GroundTraceHalfHeightCm = 100000.0f;
 
-	/* Supplies normalized moisture when no registered source contains an M4 Cell. */
-	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "M4", meta = (ClampMin = "0.0", ClampMax = "1.0"))
-	float M4DefaultMoistureRatio = 0.5f;
-
 	/* Starts the M6 path target above this normalized M5 Damage value. */
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "M6|State", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float M6VisibleDamageThresholdRatio = 0.15f;
@@ -176,5 +172,5 @@ public:
 
 	/* Identifies the serialized settings schema version. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Version")
-	int32 SettingsSchemaVersion = 12;
+	int32 SettingsSchemaVersion = 13;
 };

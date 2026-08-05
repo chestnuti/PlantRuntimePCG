@@ -1,49 +1,104 @@
 #include "AEPlantBiomeMapAsset.h"
 
-/* Samples the normalized biome prior with bilinear interpolation. */
-float UAEPlantBiomeMapAsset::SampleWeight(const FVector& WorldLocation) const
+#include "AEWorldScalarFieldAsset.h"
+
+#if WITH_EDITOR
+#include "UObject/UnrealType.h"
+#endif
+
+/* Sample the dedicated biome texture and evaluate one named interval. */
+float UAEPlantBiomeMapAsset::SampleBiomeWeight(const FName BiomeId, const FVector& WorldLocation) const
 {
-	FString Error;
-	if (!IsValidMap(Error))
+	const FAEBiomeRangeDefinition* Definition = FindBiome(BiomeId);
+	float ScalarValue = 0.0f;
+	if (Definition == nullptr || BiomeTexture == nullptr
+		|| !BiomeTexture->SampleValue(WorldLocation, 0.0f, ScalarValue))
 	{
 		return 0.0f;
 	}
-	const FVector2D Size = WorldMax - WorldMin;
-	const double U = FMath::Clamp((WorldLocation.X - WorldMin.X) / Size.X, 0.0, 1.0);
-	const double V = FMath::Clamp((WorldLocation.Y - WorldMin.Y) / Size.Y, 0.0, 1.0);
-	const double X = U * static_cast<double>(Dimensions.X - 1);
-	const double Y = V * static_cast<double>(Dimensions.Y - 1);
-	const int32 X0 = FMath::FloorToInt(X);
-	const int32 Y0 = FMath::FloorToInt(Y);
-	const int32 X1 = FMath::Min(X0 + 1, Dimensions.X - 1);
-	const int32 Y1 = FMath::Min(Y0 + 1, Dimensions.Y - 1);
-	const float A = FMath::Lerp(Weights[Y0 * Dimensions.X + X0], Weights[Y0 * Dimensions.X + X1], X - X0);
-	const float B = FMath::Lerp(Weights[Y1 * Dimensions.X + X0], Weights[Y1 * Dimensions.X + X1], X - X0);
-	const float Sample = FMath::Clamp(FMath::Lerp(A, B, Y - Y0), 0.0f, 1.0f);
-	return Sample;
+	return EvaluateBiomeWeight(ScalarValue, *Definition);
 }
 
-/* Validates dimensions, bounds, and normalized weight storage. */
+/* Keep full density inside the core interval and smooth both outer edges. */
+float UAEPlantBiomeMapAsset::EvaluateBiomeWeight(const float ScalarValue, const FAEBiomeRangeDefinition& Definition)
+{
+	if (!FMath::IsFinite(ScalarValue) || Definition.LowerBoundRatio > Definition.UpperBoundRatio)
+	{
+		return 0.0f;
+	}
+	const float Value = FMath::Clamp(ScalarValue, 0.0f, 1.0f);
+	const float Width = FMath::Max(Definition.GradientWidthRatio, 0.0f);
+	if (Width <= UE_KINDA_SMALL_NUMBER)
+	{
+		return Value >= Definition.LowerBoundRatio && Value <= Definition.UpperBoundRatio ? 1.0f : 0.0f;
+	}
+	const float LowerWeight = FMath::SmoothStep(Definition.LowerBoundRatio - Width, Definition.LowerBoundRatio, Value);
+	const float UpperWeight = 1.0f - FMath::SmoothStep(Definition.UpperBoundRatio, Definition.UpperBoundRatio + Width, Value);
+	return FMath::Clamp(LowerWeight * UpperWeight, 0.0f, 1.0f);
+}
+
+const FAEBiomeRangeDefinition* UAEPlantBiomeMapAsset::FindBiome(const FName BiomeId) const
+{
+	return Biomes.FindByPredicate([BiomeId](const FAEBiomeRangeDefinition& Definition)
+	{
+		return Definition.BiomeId == BiomeId;
+	});
+}
+
+int32 UAEPlantBiomeMapAsset::GetRuntimeRevision() const
+{
+	return HashCombine(GetTypeHash(ContentRevision), GetTypeHash(BiomeTexture != nullptr ? BiomeTexture->ContentRevision : 0));
+}
+
+/* Reject invalid scalar storage, duplicate identities, and overlapping core intervals. */
 bool UAEPlantBiomeMapAsset::IsValidMap(FString& OutError) const
 {
-	if (Dimensions.X <= 0 || Dimensions.Y <= 0 || Weights.Num() != Dimensions.X * Dimensions.Y)
+	if (BiomeTexture == nullptr || !BiomeTexture->IsValidField(OutError))
 	{
-		OutError = TEXT("Biome map dimensions do not match its weight array.");
+		if (OutError.IsEmpty()) OutError = TEXT("A dedicated biome texture field is required.");
 		return false;
 	}
-	if (WorldMax.X <= WorldMin.X || WorldMax.Y <= WorldMin.Y)
+	if (Biomes.IsEmpty())
 	{
-		OutError = TEXT("Biome map world bounds are empty.");
+		OutError = TEXT("At least one biome definition is required.");
 		return false;
 	}
-	for (const float Weight : Weights)
+	TSet<FName> Identities;
+	for (const FAEBiomeRangeDefinition& Definition : Biomes)
 	{
-		if (!FMath::IsFinite(Weight) || Weight < 0.0f || Weight > 1.0f)
+		if (Definition.BiomeId.IsNone() || Identities.Contains(Definition.BiomeId)
+			|| !FMath::IsFinite(Definition.LowerBoundRatio) || !FMath::IsFinite(Definition.UpperBoundRatio)
+			|| !FMath::IsFinite(Definition.GradientWidthRatio)
+			|| Definition.LowerBoundRatio < 0.0f || Definition.UpperBoundRatio > 1.0f
+			|| Definition.LowerBoundRatio > Definition.UpperBoundRatio
+			|| Definition.GradientWidthRatio < 0.0f || Definition.GradientWidthRatio > 1.0f)
 		{
-			OutError = TEXT("Biome map weights must be finite values in [0,1].");
+			OutError = TEXT("Biome identities, bounds, and GradientWidthRatio must be unique, finite, and normalized.");
 			return false;
+		}
+		Identities.Add(Definition.BiomeId);
+	}
+	for (int32 A = 0; A < Biomes.Num(); ++A)
+	{
+		for (int32 B = A + 1; B < Biomes.Num(); ++B)
+		{
+			const bool bCoreOverlap = Biomes[A].LowerBoundRatio < Biomes[B].UpperBoundRatio
+				&& Biomes[B].LowerBoundRatio < Biomes[A].UpperBoundRatio;
+			if (bCoreOverlap)
+			{
+				OutError = TEXT("Biome core intervals must not overlap; gradient bands may overlap.");
+				return false;
+			}
 		}
 	}
 	OutError.Reset();
 	return true;
 }
+
+#if WITH_EDITOR
+void UAEPlantBiomeMapAsset::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
+{
+	Super::PostEditChangeProperty(PropertyChangedEvent);
+	ContentRevision = ContentRevision == MAX_int32 ? 1 : ContentRevision + 1;
+}
+#endif

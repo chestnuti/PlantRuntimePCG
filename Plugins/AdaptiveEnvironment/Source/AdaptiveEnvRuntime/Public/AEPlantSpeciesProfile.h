@@ -42,6 +42,8 @@ public:
 	bool bCanEverAffectNavigation = false;
 	/* Supplies the optional species-specific biome prior. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Distribution") TObjectPtr<UAEPlantBiomeMapAsset> BiomeMap;
+	/* Selects the named biome interval that controls this species density. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Distribution") FName BiomeId = TEXT("Default");
 	/* Defines the global Poisson exclusion distance in centimetres. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Distribution", meta = (ClampMin = "1.0")) float MinimumSpacingCm = 150.0f;
 	/* Defines maximum pool density per square metre. */
