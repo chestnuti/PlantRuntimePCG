@@ -119,6 +119,7 @@ bool FAEM8SnapshotBindingAvoidsManualIdentityTest::RunTest(const FString& Parame
 	Snapshot.LifecycleProgressRatio = 0.30f;
 	Snapshot.LifecycleState = EAEPlantLifecycleState::Declining;
 	Snapshot.bVisible = true;
+	Snapshot.DeathFadeRatio = 0.35f;
 
 	FString Error;
 	TestTrue(TEXT("Valid M7 snapshot binds"), Component->BindToM7PlantSnapshot(Snapshot, false, Error));

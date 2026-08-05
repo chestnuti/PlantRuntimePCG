@@ -292,6 +292,37 @@ bool FAEM7VisibilityHysteresisTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FAEM7DeathFadeEnvelopeTest,
+	"AdaptiveEnv.M7.Lifecycle.DeathFadeEnvelope",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+/* Verifies death masking advances in real seconds and reverses when health recovers. */
+bool FAEM7DeathFadeEnvelopeTest::RunTest(const FString& Parameters)
+{
+	const float HalfFade = FAEM7LifecycleModel::ResolveDeathFadeRatio(0.25f, true, 0.5f, 2.0f);
+	TestTrue(TEXT("Death fade advances by elapsed real-time fraction"), FMath::IsNearlyEqual(HalfFade, 0.5f));
+	TestTrue(
+		TEXT("Death fade clamps at fully masked"),
+		FMath::IsNearlyEqual(FAEM7LifecycleModel::ResolveDeathFadeRatio(0.9f, true, 1.0f, 2.0f), 1.0f));
+	TestTrue(
+		TEXT("Recovery reverses the same envelope"),
+		FMath::IsNearlyEqual(FAEM7LifecycleModel::ResolveDeathFadeRatio(0.5f, false, 0.5f, 2.0f), 0.25f));
+	TestTrue(
+		TEXT("Invalid duration resolves immediately without non-finite output"),
+		FMath::IsNearlyEqual(FAEM7LifecycleModel::ResolveDeathFadeRatio(0.5f, true, 0.5f, 0.0f), 1.0f));
+	TestTrue(
+		TEXT("Dead representation remains resident until final mask reaches rendering"),
+		FAEM7LifecycleModel::ResolveRenderResidence(true, false, true, false));
+	TestFalse(
+		TEXT("Dead representation leaves rendering only after final mask submission"),
+		FAEM7LifecycleModel::ResolveRenderResidence(true, false, true, true));
+	TestFalse(
+		TEXT("Structural rejection still bypasses death fade residency"),
+		FAEM7LifecycleModel::ResolveRenderResidence(false, true, true, false));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FAEM7GroundProjectionTraceTest,
 	"AdaptiveEnv.M7.GroundProjection.ApprovedSurface",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -380,7 +411,8 @@ bool FAEM7SpeciesCollisionDefaultsTest::RunTest(const FString& Parameters)
 	TestFalse(TEXT("Ground normal alignment defaults off"), Profile->bAlignToGroundNormal);
 	TestTrue(TEXT("Dead health defaults to ten percent"), FMath::IsNearlyEqual(Profile->DeadHealthThreshold, 0.1f));
 	TestTrue(TEXT("Visibility hysteresis defaults to ten percent"), FMath::IsNearlyEqual(Profile->StateEpsilon, 0.1f));
-	TestEqual(TEXT("New profile semantic version"), Profile->SemanticVersion, FString(TEXT("1.3.0")));
+	TestTrue(TEXT("Death fade defaults to two real seconds"), FMath::IsNearlyEqual(Profile->DeathFadeDurationSeconds, 2.0f));
+	TestEqual(TEXT("New profile semantic version"), Profile->SemanticVersion, FString(TEXT("1.4.0")));
 	return true;
 }
 

@@ -19,7 +19,7 @@ public:
 	/* Stores the immutable research profile identity. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Identity") FGuid ProfileId;
 	/* Stores the semantic profile version. */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Identity") FString SemanticVersion = TEXT("1.3.0");
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Identity") FString SemanticVersion = TEXT("1.4.0");
 	/* Supplies the mesh owned by the runtime HISM. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Visual") TSoftObjectPtr<UStaticMesh> StaticMesh;
 	/* Offsets each instance anchor along the projected ground normal in centimetres. */
@@ -58,6 +58,9 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Lifecycle", meta = (ClampMin = "0.0", ClampMax = "1.0")) float DeadHealthThreshold = 0.1f;
 	/* Defines the health hysteresis width above the dead threshold for reappearance. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Lifecycle", meta = (ClampMin = "0.0", ClampMax = "1.0")) float StateEpsilon = 0.1f;
+	/* Defines masked death fade duration in real seconds before the instance becomes non-resident. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Lifecycle", meta = (ClampMin = "0.01", UIMin = "0.1", UIMax = "30.0", Units = "s"))
+	float DeathFadeDurationSeconds = 2.0f;
 	/* Defines deterministic per-candidate health variation. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Lifecycle", meta = (ClampMin = "0.0", ClampMax = "0.49")) float HealthVariationAmplitude = 0.05f;
 

@@ -18,6 +18,11 @@ bool UAEPlantSpeciesProfile::IsValidProfile(FString& OutError) const
 	{
 		return false;
 	}
+	if (!FMath::IsFinite(DeathFadeDurationSeconds) || DeathFadeDurationSeconds <= 0.0f)
+	{
+		OutError = TEXT("Death fade duration must be finite and greater than zero seconds.");
+		return false;
+	}
 	if (BiomeMap != nullptr && BiomeMap->FindBiome(BiomeId) == nullptr)
 	{
 		OutError = TEXT("BiomeId must identify one definition in BiomeMap.");

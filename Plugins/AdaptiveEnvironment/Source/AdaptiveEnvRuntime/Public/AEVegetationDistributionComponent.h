@@ -56,6 +56,7 @@ public:
 		const TArray<int32>& M5DirtyCellIndices,
 		const TArray<int32>& DistributionDirtyCellIndices,
 		double DeltaSimulationHours,
+		float DeltaVisualSeconds,
 		int64 SimulationStep);
 	/* Applies queued HISM changes within one frame budget. */
 	void ApplyVisualBudget(int32 MaximumUpdates);
@@ -81,6 +82,8 @@ private:
 		TArray<FAEPlantInstanceSnapshot> Snapshots;
 		/* Marks candidates that have consumed their first effective M4/M5 input or intact baseline. */
 		TBitArray<> InitializedHealth;
+		/* Confirms that a fully masked death value reached the M7 render adapter before removal. */
+		TBitArray<> RenderedDeathFadeCompletion;
 		/* Groups candidate indices by shared row-major Cell index. */
 		TArray<TArray<int32>> CandidateIndicesByCell;
 		/* Caches one biome density weight per shared Grid Cell. */

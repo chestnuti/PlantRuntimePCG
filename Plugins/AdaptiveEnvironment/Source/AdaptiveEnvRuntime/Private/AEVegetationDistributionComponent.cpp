@@ -203,7 +203,7 @@ bool UAEVegetationDistributionComponent::BuildSpeciesRuntime(
 		OutRuntime.Instances->SetupAttachment(Owner->GetRootComponent());
 	}
 	OutRuntime.Instances->SetStaticMesh(Mesh);
-	OutRuntime.Instances->NumCustomDataFloats = 5;
+	OutRuntime.Instances->NumCustomDataFloats = 6;
 	// Apply the species collision contract before registration creates runtime physics state.
 	OutRuntime.Instances->SetCollisionProfileName(Profile.CollisionProfileName, false);
 	OutRuntime.Instances->SetCollisionEnabled(Profile.CollisionEnabled);
@@ -216,6 +216,7 @@ bool UAEVegetationDistributionComponent::BuildSpeciesRuntime(
 
 	OutRuntime.CandidateIndicesByCell.SetNum(CachedGridDimensions.X * CachedGridDimensions.Y);
 	OutRuntime.InitializedHealth.Init(false, OutRuntime.Candidates.Num());
+	OutRuntime.RenderedDeathFadeCompletion.Init(false, OutRuntime.Candidates.Num());
 	OutRuntime.BaseWorldTransforms.Reserve(OutRuntime.Candidates.Num());
 
 	// Build HISM indices in stable candidate order with identity-derived yaw.
@@ -289,6 +290,7 @@ void UAEVegetationDistributionComponent::AdvanceM7(
 	const TArray<int32>& M5DirtyCellIndices,
 	const TArray<int32>& DistributionDirtyCellIndices,
 	const double DeltaSimulationHours,
+	const float DeltaVisualSeconds,
 	const int64 SimulationStep)
 {
 	if (!bInitialized)
@@ -357,6 +359,7 @@ void UAEVegetationDistributionComponent::AdvanceM7(
 				const bool bWasHealthInitialized = Runtime.InitializedHealth[PointIndex];
 				const float PreviousHealth = Snapshot.HealthRatio;
 				const bool bPreviouslyVisible = Snapshot.bVisible;
+				const float PreviousDeathFade = Snapshot.DeathFadeRatio;
 				Snapshot.HealthRatio = FAEM7LifecycleModel::ResolveHealthRatio(
 					PreviousHealth,
 					TargetHealth,
@@ -405,13 +408,38 @@ void UAEVegetationDistributionComponent::AdvanceM7(
 					Snapshot.LifecycleState = EAEPlantLifecycleState::Stable;
 				}
 				Snapshot.DistributionRatio = DistributionRatio;
-				Snapshot.bVisible = FAEM7LifecycleModel::ResolveVisibility(
+				const bool bDead = Snapshot.LifecycleState == EAEPlantLifecycleState::Dead;
+				const bool bHealthAllowsResidence = FAEM7LifecycleModel::ResolveVisibility(
 					bStructurallyEligible,
 					bPreviouslyVisible,
 					bWasHealthInitialized,
 					Snapshot.HealthRatio,
 					Profile->DeadHealthThreshold,
 					Profile->StateEpsilon);
+				if (!bWasHealthInitialized && bDead)
+				{
+					Snapshot.DeathFadeRatio = 1.0f;
+					Runtime.RenderedDeathFadeCompletion[PointIndex] = true;
+				}
+				else if (bDead || bHealthAllowsResidence)
+				{
+					Snapshot.DeathFadeRatio = FAEM7LifecycleModel::ResolveDeathFadeRatio(
+						PreviousDeathFade,
+						bDead,
+						DeltaVisualSeconds,
+						Profile->DeathFadeDurationSeconds);
+					if (!bDead)
+					{
+						Runtime.RenderedDeathFadeCompletion[PointIndex] = false;
+					}
+				}
+				const bool bDeathFadePending = bStructurallyEligible && bDead
+					&& !Runtime.RenderedDeathFadeCompletion[PointIndex];
+				Snapshot.bVisible = FAEM7LifecycleModel::ResolveRenderResidence(
+					bStructurallyEligible,
+					bHealthAllowsResidence,
+					bDead,
+					Runtime.RenderedDeathFadeCompletion[PointIndex]);
 				Snapshot.LifecycleProgressRatio = FMath::Clamp(
 					bWasHealthInitialized
 						? FMath::Abs(Snapshot.HealthRatio - PreviousHealth) / FMath::Max(Profile->StateEpsilon, 0.000001f)
@@ -420,7 +448,10 @@ void UAEVegetationDistributionComponent::AdvanceM7(
 					1.0f);
 				Snapshot.SimulationStep = SimulationStep;
 				Runtime.PendingVisualIndices.Add(PointIndex);
-				bCellTransitionActive |= !bAtTarget;
+				const bool bFadeAtTarget = bDead
+					? Snapshot.DeathFadeRatio >= 1.0f - UE_KINDA_SMALL_NUMBER
+					: Snapshot.DeathFadeRatio <= UE_KINDA_SMALL_NUMBER;
+				bCellTransitionActive |= !bAtTarget || !bFadeAtTarget || bDeathFadePending;
 			}
 			if (bCellTransitionActive)
 			{
@@ -456,11 +487,19 @@ void UAEVegetationDistributionComponent::ApplyVisualBudget(const int32 MaximumUp
 			Runtime.Instances->SetCustomDataValue(Index, 2, static_cast<float>(Snapshot.LifecycleState) / 4.0f, false);
 			Runtime.Instances->SetCustomDataValue(Index, 3, Snapshot.LifecycleProgressRatio, false);
 			Runtime.Instances->SetCustomDataValue(Index, 4, Snapshot.DistributionRatio, false);
+			Runtime.Instances->SetCustomDataValue(Index, 5, Snapshot.DeathFadeRatio, false);
 			if (Runtime.BaseWorldTransforms.IsValidIndex(Index))
 			{
 				FTransform Transform = Runtime.BaseWorldTransforms[Index];
 				Transform.SetScale3D(bEffectiveVisible ? FVector::OneVector : FVector::ZeroVector);
 				Runtime.Instances->UpdateInstanceTransform(Index, Transform, true, false, true);
+			}
+			if (Snapshot.LifecycleState == EAEPlantLifecycleState::Dead
+				&& Snapshot.DeathFadeRatio >= 1.0f - UE_KINDA_SMALL_NUMBER
+				&& Snapshot.bVisible
+				&& Runtime.RenderedDeathFadeCompletion.IsValidIndex(Index))
+			{
+				Runtime.RenderedDeathFadeCompletion[Index] = true;
 			}
 			Runtime.PendingVisualIndices.Remove(Index);
 		}

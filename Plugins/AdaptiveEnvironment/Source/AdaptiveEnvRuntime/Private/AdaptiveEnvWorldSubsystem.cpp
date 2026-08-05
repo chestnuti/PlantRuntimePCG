@@ -1263,6 +1263,7 @@ void UAEAdaptiveEnvWorldSubsystem::UpdateM7(const float StepSeconds)
 				SharedM5Dirty,
 				DistributionDirty,
 				DeltaSimulationHours,
+				StepSeconds,
 				CurrentStep);
 		}
 	}

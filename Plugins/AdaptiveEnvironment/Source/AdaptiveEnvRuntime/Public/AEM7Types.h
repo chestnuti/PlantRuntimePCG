@@ -41,6 +41,8 @@ struct ADAPTIVEENVRUNTIME_API FAEPlantInstanceSnapshot
 	UPROPERTY(BlueprintReadOnly, Category = "Adaptive Environment|M7") EAEPlantLifecycleState LifecycleState = EAEPlantLifecycleState::Growing;
 	/* Reports normalized progress for downstream animation. */
 	UPROPERTY(BlueprintReadOnly, Category = "Adaptive Environment|M7") float LifecycleProgressRatio = 0.0f;
+	/* Reports real-time visual retirement progress from visible to fully masked. */
+	UPROPERTY(BlueprintReadOnly, Category = "Adaptive Environment|M7") float DeathFadeRatio = 0.0f;
 	/* Identifies the fixed simulation step that produced this state. */
 	UPROPERTY(BlueprintReadOnly, Category = "Adaptive Environment|M7") int64 SimulationStep = 0;
 };
@@ -81,4 +83,16 @@ struct ADAPTIVEENVRUNTIME_API FAEM7LifecycleModel
 		float HealthRatio,
 		float DeadHealthThreshold,
 		float StateEpsilon);
+	/* Advances reversible death masking in real seconds without changing ecological health. */
+	static float ResolveDeathFadeRatio(
+		float CurrentFadeRatio,
+		bool bDead,
+		float DeltaSeconds,
+		float FadeDurationSeconds);
+	/* Keeps a dead representation resident until its fully masked value has reached rendering. */
+	static bool ResolveRenderResidence(
+		bool bStructurallyEligible,
+		bool bHealthAllowsResidence,
+		bool bDead,
+		bool bFadeCompletionRendered);
 };
