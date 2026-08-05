@@ -31,7 +31,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAEM4ScalarFieldSamplingTest, "AdaptiveEnv.M4.M
 
 bool FAEM4ScalarFieldSamplingTest::RunTest(const FString& Parameters)
 {
-	UAEWorldScalarFieldAsset* Field = NewObject<UAEWorldScalarFieldAsset>();
+	UAEMoistureTextureAsset* Field = NewObject<UAEMoistureTextureAsset>();
 	Field->BakedDimensions = FIntPoint(2, 2);
 	Field->WorldMin = FVector2D::ZeroVector;
 	Field->WorldMax = FVector2D(100.0, 100.0);

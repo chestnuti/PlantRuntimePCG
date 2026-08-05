@@ -5,6 +5,7 @@
 #include "AEPlantBiomeMapAsset.h"
 #include "AEPlantDistributionService.h"
 #include "AEPlantSpeciesProfile.h"
+#include "AEHeatmapRendererComponent.h"
 #include "AEWorldScalarFieldAsset.h"
 #include "AEWorldConstraintProvider.h"
 #include "AEM7Types.h"
@@ -131,6 +132,53 @@ bool FAEM7BiomeMapSamplingTest::RunTest(const FString& Parameters)
 	Biome.GradientWidthRatio = 0.0f;
 	TestTrue(TEXT("Zero gradient uses a hard boundary"), FMath::IsNearlyZero(
 		UAEPlantBiomeMapAsset::EvaluateBiomeWeight(0.3f, Biome)));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FAEM7BiomeDebugEvaluationTest,
+	"AdaptiveEnv.M7.BiomeMap.DebugEvaluation",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FAEM7BiomeDebugEvaluationTest::RunTest(const FString& Parameters)
+{
+	UAEPlantBiomeMapAsset* Map = NewObject<UAEPlantBiomeMapAsset>();
+	FAEBiomeRangeDefinition& Forest = Map->Biomes.AddDefaulted_GetRef();
+	Forest.BiomeId = TEXT("Forest");
+	Forest.LowerBoundRatio = 0.2f;
+	Forest.UpperBoundRatio = 0.4f;
+	Forest.GradientWidthRatio = 0.2f;
+	FAEBiomeRangeDefinition& Desert = Map->Biomes.AddDefaulted_GetRef();
+	Desert.BiomeId = TEXT("Desert");
+	Desert.LowerBoundRatio = 0.6f;
+	Desert.UpperBoundRatio = 0.8f;
+	Desert.GradientWidthRatio = 0.2f;
+
+	float SelectedWeight = 0.0f;
+	float DominantWeight = 0.0f;
+	FName DominantBiomeId = NAME_None;
+	TestTrue(TEXT("Biome debug evaluation accepts authored definitions"),
+		UAEHeatmapRendererComponent::EvaluateBiomeDebugValue(
+			Map,
+			TEXT("Desert"),
+			0.5f,
+			SelectedWeight,
+			DominantBiomeId,
+			DominantWeight));
+	TestTrue(TEXT("Selected biome exposes its smooth edge weight"), FMath::IsNearlyEqual(SelectedWeight, 0.5f, 1.0e-4f));
+	TestEqual(TEXT("Equal weights use authored-order dominant biome"), DominantBiomeId, FName(TEXT("Forest")));
+	TestTrue(TEXT("Dominant weight remains normalized"), FMath::IsNearlyEqual(DominantWeight, 0.5f, 1.0e-4f));
+	TestEqual(TEXT("Biome debug colour is stable"),
+		UAEHeatmapRendererComponent::GetBiomeDebugColor(TEXT("Forest")),
+		UAEHeatmapRendererComponent::GetBiomeDebugColor(TEXT("Forest")));
+	TestFalse(TEXT("Missing biome map is rejected"),
+		UAEHeatmapRendererComponent::EvaluateBiomeDebugValue(
+			nullptr,
+			TEXT("Forest"),
+			0.5f,
+			SelectedWeight,
+			DominantBiomeId,
+			DominantWeight));
 	return true;
 }
 

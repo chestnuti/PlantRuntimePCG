@@ -52,7 +52,10 @@ enum class EAEHeatmapDebugMode : uint8
 	Damage,
 	Recovery,
 	DamageRate,
-	RecoveryRate
+	RecoveryRate,
+	Moisture,
+	BiomeWeight,
+	BiomeClassification
 };
 
 /* Captures one timestamped agent observation or discrete event. */
