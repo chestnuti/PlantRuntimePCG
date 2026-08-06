@@ -90,6 +90,8 @@ private:
 		TArray<float> BiomeWeightsByCell;
 		/* Stores the biome-map revision represented by BiomeWeightsByCell. */
 		int32 BiomeCacheRevision = 0;
+		/* Stores the species and LUT revision represented by current suitability output. */
+		int32 SuitabilityModelRevision = 0;
 		/* Tracks Cells whose health has not reached its current target. */
 		TSet<int32> ActiveTransitionCells;
 		/* Tracks Cells whose distribution inputs require reevaluation. */

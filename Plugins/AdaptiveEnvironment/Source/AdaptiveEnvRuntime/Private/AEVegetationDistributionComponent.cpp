@@ -5,6 +5,7 @@
 #include "AEPlantBiomeMapAsset.h"
 #include "AEPlantDistributionService.h"
 #include "AEPlantSpeciesProfile.h"
+#include "AEPlantSuitabilityService.h"
 #include "AEWorldConstraintProvider.h"
 #include "Components/HierarchicalInstancedStaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
@@ -213,6 +214,7 @@ bool UAEVegetationDistributionComponent::BuildSpeciesRuntime(
 	Owner->AddInstanceComponent(OutRuntime.Instances);
 	OutRuntime.Instances->RegisterComponent();
 	OutRuntime.Profile = &Profile;
+	OutRuntime.SuitabilityModelRevision = Profile.GetSuitabilityRuntimeRevision();
 
 	OutRuntime.CandidateIndicesByCell.SetNum(CachedGridDimensions.X * CachedGridDimensions.Y);
 	OutRuntime.InitializedHealth.Init(false, OutRuntime.Candidates.Num());
@@ -313,6 +315,15 @@ void UAEVegetationDistributionComponent::AdvanceM7(
 				if (!Runtime.CandidateIndicesByCell[CellIndex].IsEmpty()) Runtime.DistributionDirtyCells.Add(CellIndex);
 			}
 		}
+		const int32 CurrentSuitabilityRevision = Profile->GetSuitabilityRuntimeRevision();
+		if (Runtime.SuitabilityModelRevision != CurrentSuitabilityRevision)
+		{
+			Runtime.SuitabilityModelRevision = CurrentSuitabilityRevision;
+			for (int32 CellIndex = 0; CellIndex < Runtime.CandidateIndicesByCell.Num(); ++CellIndex)
+			{
+				if (!Runtime.CandidateIndicesByCell[CellIndex].IsEmpty()) Runtime.DistributionDirtyCells.Add(CellIndex);
+			}
+		}
 		TSet<int32> CandidateCells = Runtime.ActiveTransitionCells;
 		CandidateCells.Append(Runtime.DistributionDirtyCells);
 		for (const int32 CellIndex : M5DirtyCellIndices)
@@ -337,25 +348,40 @@ void UAEVegetationDistributionComponent::AdvanceM7(
 			const FIntPoint Coordinate(CellIndex % CachedGridDimensions.X, CellIndex / CachedGridDimensions.X);
 			FAEEnvironmentConstraintSnapshot M4;
 			FAEEcologicalResponseSnapshot M5;
-			// Unsampled upstream cells represent intact baseline habitat until M4/M5 commits them.
+			// Unsampled upstream cells preserve an intact baseline until M4/M5 commits them.
 			const bool bHasM4 = Subsystem.GetM4Cell(Coordinate, M4);
 			const bool bHasM5 = Subsystem.GetM5Cell(Coordinate, M5);
-			if (!bHasM4) M4.HabitatSuitabilityRatio = 1.0f;
 			if (!bHasM5) M5.DamageRatio = 0.0f;
+			float EnvironmentResponseRatio = 1.0f;
+			if (bHasM4 && !FAEPlantSuitabilityService::EvaluateEnvironmentResponse(
+				*Profile,
+				M4.SlopeDegrees,
+				M4.MoistureRatio,
+				EnvironmentResponseRatio))
+			{
+				EnvironmentResponseRatio = 0.0f;
+			}
+			const float BiomeWeight = Runtime.BiomeWeightsByCell.IsValidIndex(CellIndex)
+				? Runtime.BiomeWeightsByCell[CellIndex]
+				: 1.0f;
+			const float SpeciesSuitabilityRatio = FAEPlantSuitabilityService::ResolveSpeciesSuitability(
+				EnvironmentResponseRatio,
+				Profile->SuitabilityScale,
+				BiomeWeight);
+			const float EffectiveRecoveryRate = FAEPlantSuitabilityService::ResolveEffectiveRecoveryRate(
+				Profile->RecoveryRatePerSimulationHour,
+				SpeciesSuitabilityRatio);
 			bool bCellTransitionActive = false;
 			for (const int32 PointIndex : Runtime.CandidateIndicesByCell[CellIndex])
 			{
 				const FAEM7CandidatePoint& Candidate = Runtime.Candidates[PointIndex];
 				FAEPlantInstanceSnapshot& Snapshot = Runtime.Snapshots[PointIndex];
-				const float BiomeWeight = Runtime.BiomeWeightsByCell.IsValidIndex(CellIndex)
-					? Runtime.BiomeWeightsByCell[CellIndex]
-					: 1.0f;
-				const float DistributionRatio = FMath::Clamp(M4.HabitatSuitabilityRatio * BiomeWeight, 0.0f, 1.0f);
+				const float DistributionRatio = SpeciesSuitabilityRatio;
 				const bool bStructurallyEligible = Candidate.SelectionKey < DistributionRatio;
-				const float TargetHealth = FMath::Clamp(
-					1.0f - FMath::Clamp(M5.DamageRatio, 0.0f, 1.0f) + Candidate.HealthVariation,
-					0.0f,
-					1.0f);
+				const float TargetHealth = FAEPlantSuitabilityService::ResolveTargetHealth(
+					M5.DamageRatio,
+					Profile->SpeciesDamageSensitivity,
+					Candidate.HealthVariation);
 				const bool bWasHealthInitialized = Runtime.InitializedHealth[PointIndex];
 				const float PreviousHealth = Snapshot.HealthRatio;
 				const bool bPreviouslyVisible = Snapshot.bVisible;
@@ -366,7 +392,7 @@ void UAEVegetationDistributionComponent::AdvanceM7(
 					bWasHealthInitialized,
 					DeltaSimulationHours,
 					Profile->DeclineRatePerSimulationHour,
-					Profile->RecoveryRatePerSimulationHour);
+					EffectiveRecoveryRate);
 				Runtime.InitializedHealth[PointIndex] = true;
 				const bool bAtTarget = FMath::IsNearlyEqual(
 					Snapshot.HealthRatio,
@@ -408,6 +434,8 @@ void UAEVegetationDistributionComponent::AdvanceM7(
 					Snapshot.LifecycleState = EAEPlantLifecycleState::Stable;
 				}
 				Snapshot.DistributionRatio = DistributionRatio;
+				Snapshot.EnvironmentSuitabilityRatio = EnvironmentResponseRatio;
+				Snapshot.EffectiveRecoveryRatePerSimulationHour = EffectiveRecoveryRate;
 				const bool bDead = Snapshot.LifecycleState == EAEPlantLifecycleState::Dead;
 				const bool bHealthAllowsResidence = FAEM7LifecycleModel::ResolveVisibility(
 					bStructurallyEligible,
@@ -416,7 +444,12 @@ void UAEVegetationDistributionComponent::AdvanceM7(
 					Snapshot.HealthRatio,
 					Profile->DeadHealthThreshold,
 					Profile->StateEpsilon);
-				if (!bWasHealthInitialized && bDead)
+				if (!bStructurallyEligible)
+				{
+					Snapshot.DeathFadeRatio = 0.0f;
+					Runtime.RenderedDeathFadeCompletion[PointIndex] = false;
+				}
+				else if (!bWasHealthInitialized && bDead)
 				{
 					Snapshot.DeathFadeRatio = 1.0f;
 					Runtime.RenderedDeathFadeCompletion[PointIndex] = true;
@@ -451,7 +484,8 @@ void UAEVegetationDistributionComponent::AdvanceM7(
 				const bool bFadeAtTarget = bDead
 					? Snapshot.DeathFadeRatio >= 1.0f - UE_KINDA_SMALL_NUMBER
 					: Snapshot.DeathFadeRatio <= UE_KINDA_SMALL_NUMBER;
-				bCellTransitionActive |= !bAtTarget || !bFadeAtTarget || bDeathFadePending;
+				const bool bHealthTransitionPending = bStructurallyEligible && !bAtTarget;
+				bCellTransitionActive |= bHealthTransitionPending || !bFadeAtTarget || bDeathFadePending;
 			}
 			if (bCellTransitionActive)
 			{

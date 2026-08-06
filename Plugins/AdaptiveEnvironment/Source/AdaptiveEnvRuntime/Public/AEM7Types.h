@@ -35,6 +35,10 @@ struct ADAPTIVEENVRUNTIME_API FAEPlantInstanceSnapshot
 	UPROPERTY(BlueprintReadOnly, Category = "Adaptive Environment|M7") float HealthRatio = 1.0f;
 	/* Reports the current combined distribution probability. */
 	UPROPERTY(BlueprintReadOnly, Category = "Adaptive Environment|M7") float DistributionRatio = 0.0f;
+	/* Reports the selected LUT or manual environment response before biome weighting. */
+	UPROPERTY(BlueprintReadOnly, Category = "Adaptive Environment|M7") float EnvironmentSuitabilityRatio = 1.0f;
+	/* Reports the species recovery rate after final suitability scaling. */
+	UPROPERTY(BlueprintReadOnly, Category = "Adaptive Environment|M7") float EffectiveRecoveryRatePerSimulationHour = 0.0f;
 	/* Reports whether the stable candidate is currently active. */
 	UPROPERTY(BlueprintReadOnly, Category = "Adaptive Environment|M7") bool bVisible = false;
 	/* Reports the current lifecycle transition state. */
