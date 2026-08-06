@@ -11,9 +11,30 @@
 #include "LandscapeProxy.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialInterface.h"
+#include "RenderUtils.h"
 
 namespace AEPathHeatmapRendererPrivate
 {
+	/* Append one untextured triangle with an explicit RGBA vertex value. */
+	void AddSolidTriangle(
+		TArray<FCanvasUVTri>& Triangles,
+		const FVector2D& A,
+		const FVector2D& B,
+		const FVector2D& C,
+		const FLinearColor& Color)
+	{
+		FCanvasUVTri& Triangle = Triangles.AddDefaulted_GetRef();
+		Triangle.V0_Pos = A;
+		Triangle.V1_Pos = B;
+		Triangle.V2_Pos = C;
+		Triangle.V0_UV = FVector2D::ZeroVector;
+		Triangle.V1_UV = FVector2D::ZeroVector;
+		Triangle.V2_UV = FVector2D::ZeroVector;
+		Triangle.V0_Color = Color;
+		Triangle.V1_Color = Color;
+		Triangle.V2_Color = Color;
+	}
+
 	/* Reports whether one material parameter list contains an exact configured name. */
 	bool ContainsParameterName(
 		const TConstArrayView<FMaterialParameterInfo> Parameters,
@@ -65,11 +86,13 @@ void UAEPathHeatmapRendererComponent::EndPlay(
 	}
 	PendingCommands.Reset();
 	PendingCommandPositions.Reset();
-	PathHeatmapRenderTarget = nullptr;
+	EncodedCellValues.Reset();
+	PathStateRenderTarget = nullptr;
+	PathVisualRenderTarget = nullptr;
 	Super::EndPlay(EndPlayReason);
 }
 
-/* Create the linear Render Target and publish the material-side binding. */
+/* Create separate Cell-state and supersampled material-facing Render Targets. */
 bool UAEPathHeatmapRendererComponent::InitializeVisualOutput(
 	const FIntPoint& GridDimensions,
 	const FBox2D& GridWorldBounds)
@@ -82,28 +105,60 @@ bool UAEPathHeatmapRendererComponent::InitializeVisualOutput(
 		return false;
 	}
 
-	// Allocate one texture texel per shared runtime Cell.
+	const UAdaptiveEnvSettings* Settings = GetDefault<UAdaptiveEnvSettings>();
+	const int32 VisualPixelsPerCell = FMath::Clamp(Settings->M6VisualPixelsPerCell, 1, 8);
+	const int64 VisualWidth = static_cast<int64>(GridDimensions.X) * VisualPixelsPerCell;
+	const int64 VisualHeight = static_cast<int64>(GridDimensions.Y) * VisualPixelsPerCell;
+	if (VisualWidth > 16384 || VisualHeight > 16384)
+	{
+		UE_LOG(
+			LogAdaptiveEnv,
+			Error,
+			TEXT("M6 supersampled Render Target exceeds the supported 16384-pixel edge. Grid=%dx%d PixelsPerCell=%d"),
+			GridDimensions.X,
+			GridDimensions.Y,
+			VisualPixelsPerCell);
+		DisableMaterialOutput();
+		return false;
+	}
+
 	const FLinearColor NeutralVisualValue(128.0f / 255.0f, 128.0f / 255.0f, 0.0f, 0.0f);
-	TextureDimensions = GridDimensions;
-	PathHeatmapRenderTarget = NewObject<UTextureRenderTarget2D>(this);
-	if (!IsValid(PathHeatmapRenderTarget))
+	StateTextureDimensions = GridDimensions;
+	VisualTextureDimensions = FIntPoint(
+		static_cast<int32>(VisualWidth),
+		static_cast<int32>(VisualHeight));
+	PathStateRenderTarget = NewObject<UTextureRenderTarget2D>(this);
+	PathVisualRenderTarget = NewObject<UTextureRenderTarget2D>(this);
+	if (!IsValid(PathStateRenderTarget) || !IsValid(PathVisualRenderTarget))
 	{
 		return false;
 	}
-	PathHeatmapRenderTarget->RenderTargetFormat = ETextureRenderTargetFormat::RTF_RGBA8;
-	PathHeatmapRenderTarget->ClearColor = NeutralVisualValue;
-	PathHeatmapRenderTarget->bAutoGenerateMips = false;
-	PathHeatmapRenderTarget->InitAutoFormat(TextureDimensions.X, TextureDimensions.Y);
-	PathHeatmapRenderTarget->UpdateResourceImmediate(true);
-	UKismetRenderingLibrary::ClearRenderTarget2D(this, PathHeatmapRenderTarget, NeutralVisualValue);
+	PathStateRenderTarget->RenderTargetFormat = ETextureRenderTargetFormat::RTF_RGBA8;
+	PathStateRenderTarget->ClearColor = NeutralVisualValue;
+	PathStateRenderTarget->Filter = TF_Nearest;
+	PathStateRenderTarget->bAutoGenerateMips = false;
+	PathStateRenderTarget->InitAutoFormat(StateTextureDimensions.X, StateTextureDimensions.Y);
+	PathStateRenderTarget->UpdateResourceImmediate(true);
+	PathVisualRenderTarget->RenderTargetFormat = ETextureRenderTargetFormat::RTF_RGBA8;
+	PathVisualRenderTarget->ClearColor = NeutralVisualValue;
+	PathVisualRenderTarget->Filter = TF_Bilinear;
+	PathVisualRenderTarget->bAutoGenerateMips = false;
+	PathVisualRenderTarget->InitAutoFormat(VisualTextureDimensions.X, VisualTextureDimensions.Y);
+	PathVisualRenderTarget->UpdateResourceImmediate(true);
+	UKismetRenderingLibrary::ClearRenderTarget2D(this, PathStateRenderTarget, NeutralVisualValue);
+	UKismetRenderingLibrary::ClearRenderTarget2D(this, PathVisualRenderTarget, NeutralVisualValue);
 
 	// Encode the stable World XY to texture UV transform.
 	const FVector2D WorldSize = GridWorldBounds.GetSize();
 	if (WorldSize.X <= UE_DOUBLE_SMALL_NUMBER || WorldSize.Y <= UE_DOUBLE_SMALL_NUMBER)
 	{
-		PathHeatmapRenderTarget = nullptr;
+		PathStateRenderTarget = nullptr;
+		PathVisualRenderTarget = nullptr;
 		return false;
 	}
+	GridCellSizeCm = static_cast<float>(FMath::Min(
+		WorldSize.X / GridDimensions.X,
+		WorldSize.Y / GridDimensions.Y));
 	GridTransform = FLinearColor(
 		GridWorldBounds.Min.X,
 		GridWorldBounds.Min.Y,
@@ -111,6 +166,7 @@ bool UAEPathHeatmapRendererComponent::InitializeVisualOutput(
 		1.0 / WorldSize.Y);
 	PendingCommands.Reset();
 	PendingCommandPositions.Reset();
+	EncodedCellValues.Init(FColor(128, 128, 0, 0), GridDimensions.X * GridDimensions.Y);
 	BindMaterialOutputs();
 	return true;
 }
@@ -119,7 +175,7 @@ bool UAEPathHeatmapRendererComponent::InitializeVisualOutput(
 bool UAEPathHeatmapRendererComponent::RefreshMaterialBindings()
 {
 	check(IsInGameThread());
-	if (!IsValid(PathHeatmapRenderTarget))
+	if (!IsValid(PathVisualRenderTarget))
 	{
 		UE_LOG(
 			LogAdaptiveEnv,
@@ -140,8 +196,8 @@ void UAEPathHeatmapRendererComponent::EnqueueVisualCommands(
 	{
 		if (Command.CellIndex < 0
 			|| Command.Coordinate.X < 0 || Command.Coordinate.Y < 0
-			|| Command.Coordinate.X >= TextureDimensions.X
-			|| Command.Coordinate.Y >= TextureDimensions.Y)
+			|| Command.Coordinate.X >= StateTextureDimensions.X
+			|| Command.Coordinate.Y >= StateTextureDimensions.Y)
 		{
 			continue;
 		}
@@ -166,7 +222,7 @@ void UAEPathHeatmapRendererComponent::ApplyVisualBudget(
 	const int32 MaxCommands)
 {
 	check(IsInGameThread());
-	if (!IsValid(PathHeatmapRenderTarget)
+	if (!IsValid(PathStateRenderTarget) || !IsValid(PathVisualRenderTarget)
 		|| MaxCommands <= 0 || PendingCommands.IsEmpty())
 	{
 		return;
@@ -178,7 +234,7 @@ void UAEPathHeatmapRendererComponent::ApplyVisualBudget(
 	FDrawToRenderTargetContext Context;
 	UKismetRenderingLibrary::BeginDrawCanvasToRenderTarget(
 		this,
-		PathHeatmapRenderTarget,
+		PathStateRenderTarget,
 		Canvas,
 		RenderTargetSize,
 		Context);
@@ -192,6 +248,10 @@ void UAEPathHeatmapRendererComponent::ApplyVisualBudget(
 	for (int32 CommandIndex = 0; CommandIndex < ApplyCount; ++CommandIndex)
 	{
 		const FAEPathHeatmapVisualCommand& Command = PendingCommands[CommandIndex];
+		if (EncodedCellValues.IsValidIndex(Command.CellIndex))
+		{
+			EncodedCellValues[Command.CellIndex] = Command.EncodedValue;
+		}
 		// Preserve the shared Grid XY orientation so material UVs need no hidden axis correction.
 		const int32 PixelY = Command.Coordinate.Y;
 		const FLinearColor EncodedValue(
@@ -207,6 +267,7 @@ void UAEPathHeatmapRendererComponent::ApplyVisualBudget(
 		Canvas->Canvas->DrawItem(Tile);
 	}
 	UKismetRenderingLibrary::EndDrawCanvasToRenderTarget(this, Context);
+	RebuildVisualOutput();
 
 	// Remove the applied stable prefix and rebuild lookup positions.
 	PendingCommands.RemoveAt(0, ApplyCount, EAllowShrinking::No);
@@ -219,15 +280,139 @@ void UAEPathHeatmapRendererComponent::ResetVisualOutput()
 	check(IsInGameThread());
 	PendingCommands.Reset();
 	PendingCommandPositions.Reset();
-	if (IsValid(PathHeatmapRenderTarget))
+	EncodedCellValues.Init(FColor(128, 128, 0, 0), EncodedCellValues.Num());
+	if (IsValid(PathStateRenderTarget))
 	{
 		const FLinearColor NeutralVisualValue(128.0f / 255.0f, 128.0f / 255.0f, 0.0f, 0.0f);
 		UKismetRenderingLibrary::ClearRenderTarget2D(
 			this,
-			PathHeatmapRenderTarget,
+			PathStateRenderTarget,
+			NeutralVisualValue);
+	}
+	if (IsValid(PathVisualRenderTarget))
+	{
+		const FLinearColor NeutralVisualValue(128.0f / 255.0f, 128.0f / 255.0f, 0.0f, 0.0f);
+		UKismetRenderingLibrary::ClearRenderTarget2D(
+			this,
+			PathVisualRenderTarget,
 			NeutralVisualValue);
 	}
 	DisableMaterialOutput();
+}
+
+/* Draw fixed-width Flow-oriented capsules from cached Cell state. */
+void UAEPathHeatmapRendererComponent::RebuildVisualOutput()
+{
+	check(IsInGameThread());
+	if (!IsValid(PathVisualRenderTarget)
+		|| StateTextureDimensions.X <= 0 || StateTextureDimensions.Y <= 0
+		|| VisualTextureDimensions.X <= 0 || VisualTextureDimensions.Y <= 0
+		|| GridCellSizeCm <= UE_SMALL_NUMBER)
+	{
+		return;
+	}
+
+	const FLinearColor NeutralVisualValue(128.0f / 255.0f, 128.0f / 255.0f, 0.0f, 0.0f);
+	UKismetRenderingLibrary::ClearRenderTarget2D(
+		this,
+		PathVisualRenderTarget,
+		NeutralVisualValue);
+
+	UCanvas* Canvas = nullptr;
+	FVector2D RenderTargetSize;
+	FDrawToRenderTargetContext Context;
+	UKismetRenderingLibrary::BeginDrawCanvasToRenderTarget(
+		this,
+		PathVisualRenderTarget,
+		Canvas,
+		RenderTargetSize,
+		Context);
+	if (Canvas == nullptr || Canvas->Canvas == nullptr)
+	{
+		UKismetRenderingLibrary::EndDrawCanvasToRenderTarget(this, Context);
+		return;
+	}
+
+	const UAdaptiveEnvSettings* Settings = GetDefault<UAdaptiveEnvSettings>();
+	const float PixelsPerCell = static_cast<float>(VisualTextureDimensions.X)
+		/ StateTextureDimensions.X;
+	const float PathRadiusPixels = FMath::Max(
+		Settings->M6PathHalfWidthCm / GridCellSizeCm * PixelsPerCell,
+		0.5f);
+	const float HalfLengthPixels = FMath::Clamp(
+		Settings->M6SegmentHalfLengthCells,
+		0.5f,
+		1.0f) * PixelsPerCell;
+
+	TArray<int32> ActiveIndices;
+	ActiveIndices.Reserve(EncodedCellValues.Num());
+	for (int32 CellIndex = 0; CellIndex < EncodedCellValues.Num(); ++CellIndex)
+	{
+		if (EncodedCellValues[CellIndex].A > 0)
+		{
+			ActiveIndices.Add(CellIndex);
+		}
+	}
+	ActiveIndices.Sort(
+		[this](const int32 Left, const int32 Right)
+		{
+			return EncodedCellValues[Left].A < EncodedCellValues[Right].A;
+		});
+
+	for (const int32 CellIndex : ActiveIndices)
+	{
+		const FColor EncodedValue = EncodedCellValues[CellIndex];
+		const FIntPoint Coordinate(
+			CellIndex % StateTextureDimensions.X,
+			CellIndex / StateTextureDimensions.X);
+		const FVector2D Center(
+			(Coordinate.X + 0.5) * PixelsPerCell,
+			(Coordinate.Y + 0.5) * PixelsPerCell);
+		const FVector2D Flow(
+			static_cast<float>(EncodedValue.R) / 255.0f * 2.0f - 1.0f,
+			static_cast<float>(EncodedValue.G) / 255.0f * 2.0f - 1.0f);
+		const float FlowMagnitude = Flow.Size();
+		const FVector2D Direction = FlowMagnitude > (2.0f / 255.0f)
+			? Flow / FlowMagnitude
+			: FVector2D(1.0f, 0.0f);
+		const float EffectiveHalfLength = FlowMagnitude > (2.0f / 255.0f)
+			? HalfLengthPixels
+			: FMath::Max(PathRadiusPixels * 0.05f, 0.05f);
+		const FVector2D Offset = Direction * EffectiveHalfLength;
+		const FLinearColor DrawColor(
+			static_cast<float>(EncodedValue.R) / 255.0f,
+			static_cast<float>(EncodedValue.G) / 255.0f,
+			0.0f,
+			static_cast<float>(EncodedValue.A) / 255.0f);
+
+		const FVector2D Perpendicular(-Direction.Y, Direction.X);
+		const FVector2D RadiusOffset = Perpendicular * PathRadiusPixels;
+		const FVector2D Start = Center - Offset;
+		const FVector2D End = Center + Offset;
+		const FVector2D StartLeft = Start - RadiusOffset;
+		const FVector2D StartRight = Start + RadiusOffset;
+		const FVector2D EndLeft = End - RadiusOffset;
+		const FVector2D EndRight = End + RadiusOffset;
+
+		TArray<FCanvasUVTri> SegmentTriangles;
+		SegmentTriangles.Reserve(2);
+		AEPathHeatmapRendererPrivate::AddSolidTriangle(
+			SegmentTriangles,
+			StartLeft,
+			EndLeft,
+			EndRight,
+			DrawColor);
+		AEPathHeatmapRendererPrivate::AddSolidTriangle(
+			SegmentTriangles,
+			StartLeft,
+			EndRight,
+			StartRight,
+			DrawColor);
+		FCanvasTriangleItem SegmentItem(SegmentTriangles, GWhiteTexture);
+		SegmentItem.BlendMode = SE_BLEND_Opaque;
+		Canvas->Canvas->DrawItem(SegmentItem);
+	}
+	UKismetRenderingLibrary::EndDrawCanvasToRenderTarget(this, Context);
 }
 
 /* Replace all material outputs while preserving the shared Render Target contents. */
@@ -273,14 +458,14 @@ int32 UAEPathHeatmapRendererComponent::BindMaterialOutputs()
 /* Push the documented M6 texture and spatial constants into the optional Landscape material. */
 bool UAEPathHeatmapRendererComponent::BindLandscapeMaterialParameters()
 {
-	if (!IsValid(TargetLandscape) || !IsValid(PathHeatmapRenderTarget))
+	if (!IsValid(TargetLandscape) || !IsValid(PathVisualRenderTarget))
 	{
 		return false;
 	}
 	const UAdaptiveEnvSettings* Settings = GetDefault<UAdaptiveEnvSettings>();
 	TargetLandscape->SetLandscapeMaterialTextureParameterValue(
 		Settings->M6PathTextureParameterName,
-		PathHeatmapRenderTarget);
+		PathVisualRenderTarget);
 	TargetLandscape->SetLandscapeMaterialVectorParameterValue(
 		Settings->M6GridTransformParameterName,
 		GridTransform);
@@ -349,7 +534,7 @@ void UAEPathHeatmapRendererComponent::ApplyMeshMaterialParameters(
 	UMaterialInstanceDynamic& Material) const
 {
 	const UAdaptiveEnvSettings* Settings = GetDefault<UAdaptiveEnvSettings>();
-	Material.SetTextureParameterValue(Settings->M6PathTextureParameterName, PathHeatmapRenderTarget);
+	Material.SetTextureParameterValue(Settings->M6PathTextureParameterName, PathVisualRenderTarget);
 	Material.SetVectorParameterValue(Settings->M6GridTransformParameterName, GridTransform);
 	Material.SetScalarParameterValue(Settings->M6EnabledParameterName, 1.0f);
 }

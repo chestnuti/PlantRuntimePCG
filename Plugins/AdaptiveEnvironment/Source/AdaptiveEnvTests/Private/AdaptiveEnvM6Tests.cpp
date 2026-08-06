@@ -234,11 +234,24 @@ bool FAEM6MeshMaterialBindingTest::RunTest(const FString& Parameters)
 	const FBox2D Bounds(FVector2D::ZeroVector, FVector2D(200.0, 400.0));
 	TestTrue(TEXT("M6 Render Target initializes for a Mesh output"), Renderer->InitializeVisualOutput(FIntPoint(2, 4), Bounds));
 	TestEqual(TEXT("One Mesh material output is bound"), Renderer->GetBoundMaterialOutputCount(), 1);
+	const UAdaptiveEnvSettings* Settings = GetDefault<UAdaptiveEnvSettings>();
+	UTextureRenderTarget2D* StateTarget = Renderer->GetPathStateRenderTarget();
+	UTextureRenderTarget2D* VisualTarget = Renderer->GetPathHeatmapRenderTarget();
+	TestNotNull(TEXT("M6 Cell-state Render Target"), StateTarget);
+	TestNotNull(TEXT("M6 supersampled visual Render Target"), VisualTarget);
+	if (StateTarget != nullptr && VisualTarget != nullptr)
+	{
+		const int32 PixelsPerCell = FMath::Clamp(Settings->M6VisualPixelsPerCell, 1, 8);
+		TestNotEqual(TEXT("State and visual outputs use separate resources"), StateTarget, VisualTarget);
+		TestEqual(TEXT("State width remains aligned to Grid Cells"), StateTarget->SizeX, 2);
+		TestEqual(TEXT("State height remains aligned to Grid Cells"), StateTarget->SizeY, 4);
+		TestEqual(TEXT("Visual width is supersampled"), VisualTarget->SizeX, 2 * PixelsPerCell);
+		TestEqual(TEXT("Visual height is supersampled"), VisualTarget->SizeY, 4 * PixelsPerCell);
+	}
 	UMaterialInstanceDynamic* DynamicMaterial = Cast<UMaterialInstanceDynamic>(MeshComponent->GetMaterial(0));
 	TestNotNull(TEXT("Mesh slot receives an MID"), DynamicMaterial);
 	if (DynamicMaterial != nullptr)
 	{
-		const UAdaptiveEnvSettings* Settings = GetDefault<UAdaptiveEnvSettings>();
 		TestTrue(
 			TEXT("MID receives the shared M6 Render Target"),
 			DynamicMaterial->K2_GetTextureParameterValue(Settings->M6PathTextureParameterName)

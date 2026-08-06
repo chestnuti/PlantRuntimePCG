@@ -49,9 +49,12 @@ public:
 	void ApplyVisualBudget(int32 MaxCommands);
 	/* Clears queued state and disables the material output. */
 	void ResetVisualOutput();
-	/* Returns the runtime Render Target supplied to every bound material. */
+	/* Returns the high-resolution Render Target supplied to every bound material. */
 	UFUNCTION(BlueprintPure, Category = "Adaptive Environment|M6")
-	UTextureRenderTarget2D* GetPathHeatmapRenderTarget() const { return PathHeatmapRenderTarget; }
+	UTextureRenderTarget2D* GetPathHeatmapRenderTarget() const { return PathVisualRenderTarget; }
+	/* Returns the one-texel-per-Cell state texture used to rebuild the visual output. */
+	UFUNCTION(BlueprintPure, Category = "Adaptive Environment|M6")
+	UTextureRenderTarget2D* GetPathStateRenderTarget() const { return PathStateRenderTarget; }
 	/* Rebuilds Landscape and Mesh material bindings without resetting M6 state. */
 	UFUNCTION(BlueprintCallable, Category = "Adaptive Environment|M6")
 	bool RefreshMaterialBindings();
@@ -79,6 +82,8 @@ private:
 	int32 BindMaterialOutputs();
 	/* Binds the M6 texture and spatial constants to the optional Landscape material. */
 	bool BindLandscapeMaterialParameters();
+	/* Reconstructs fixed-width Flow-oriented paths into the high-resolution output. */
+	void RebuildVisualOutput();
 	/* Creates validated dynamic material instances for explicit Mesh material slots. */
 	int32 BindMeshMaterialParameters(int32& OutRejectedBindingCount);
 	/* Applies the shared M6 texture contract to one runtime Mesh material. */
@@ -92,11 +97,20 @@ private:
 	/* Rebuilds the pending-index lookup after removing applied commands. */
 	void RebuildPendingCommandLookup();
 
-	/* Stores the runtime texture sampled through AE_PathHeatmapTexture. */
+	/* Stores one encoded RGBA texel per shared runtime Cell. */
 	UPROPERTY(Transient)
-	TObjectPtr<UTextureRenderTarget2D> PathHeatmapRenderTarget;
-	/* Stores grid width and height used by row-major commands. */
-	FIntPoint TextureDimensions = FIntPoint::ZeroValue;
+	TObjectPtr<UTextureRenderTarget2D> PathStateRenderTarget;
+	/* Stores the reconstructed high-resolution material-facing texture. */
+	UPROPERTY(Transient)
+	TObjectPtr<UTextureRenderTarget2D> PathVisualRenderTarget;
+	/* Stores Grid width and height used by row-major commands. */
+	FIntPoint StateTextureDimensions = FIntPoint::ZeroValue;
+	/* Stores the supersampled output dimensions. */
+	FIntPoint VisualTextureDimensions = FIntPoint::ZeroValue;
+	/* Stores the latest encoded value for every row-major Cell. */
+	TArray<FColor> EncodedCellValues;
+	/* Stores one square Cell edge in world centimetres. */
+	float GridCellSizeCm = 0.0f;
 	/* Encodes WorldMin XY and inverse WorldSize XY for material UV mapping. */
 	FLinearColor GridTransform = FLinearColor::Black;
 	/* Counts valid Landscape and Mesh outputs bound to the current Render Target. */

@@ -146,6 +146,18 @@ public:
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "M6|Renderer", meta = (ClampMin = "1"))
 	int32 M6MaxVisualCommandsPerFrame = 1024;
 
+	/* Allocates this many visual pixels along one M6 Cell edge. */
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "M6|Renderer", meta = (ClampMin = "1", ClampMax = "8"))
+	int32 M6VisualPixelsPerCell = 4;
+
+	/* Defines the reconstructed path half-width in world centimetres. */
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "M6|Renderer", meta = (ClampMin = "1.0"))
+	float M6PathHalfWidthCm = 35.0f;
+
+	/* Defines each Flow-oriented segment half-length in Cell units. */
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "M6|Renderer", meta = (ClampMin = "0.5", ClampMax = "1.0"))
+	float M6SegmentHalfLengthCells = 0.75f;
+
 	/* Limits M7 instance custom-data and transform writes per registered component and frame. */
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "M7|Renderer", meta = (ClampMin = "1"))
 	int32 M7MaxInstanceUpdatesPerFrame = 2048;
@@ -172,5 +184,5 @@ public:
 
 	/* Identifies the serialized settings schema version. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Version")
-	int32 SettingsSchemaVersion = 13;
+	int32 SettingsSchemaVersion = 14;
 };
