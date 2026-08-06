@@ -4,10 +4,28 @@
 #include "AdaptiveEnvSettings.h"
 #include "AdaptiveEnvWorldSubsystem.h"
 #include "CanvasItem.h"
+#include "Components/MeshComponent.h"
 #include "Engine/Canvas.h"
 #include "Engine/TextureRenderTarget2D.h"
 #include "Kismet/KismetRenderingLibrary.h"
 #include "LandscapeProxy.h"
+#include "Materials/MaterialInstanceDynamic.h"
+#include "Materials/MaterialInterface.h"
+
+namespace AEPathHeatmapRendererPrivate
+{
+	/* Reports whether one material parameter list contains an exact configured name. */
+	bool ContainsParameterName(
+		const TConstArrayView<FMaterialParameterInfo> Parameters,
+		const FName RequiredName)
+	{
+		return Parameters.ContainsByPredicate(
+			[RequiredName](const FMaterialParameterInfo& Parameter)
+			{
+				return Parameter.Name == RequiredName;
+			});
+	}
+}
 
 /* Create a visual consumer whose scheduling remains owned by the World Subsystem. */
 UAEPathHeatmapRendererComponent::UAEPathHeatmapRendererComponent()
@@ -34,6 +52,9 @@ void UAEPathHeatmapRendererComponent::EndPlay(
 	const EEndPlayReason::Type EndPlayReason)
 {
 	DisableMaterialOutput();
+	ReleaseMeshMaterialBindings();
+	BoundLandscape.Reset();
+	BoundMaterialOutputCount = 0;
 	if (UWorld* World = GetWorld())
 	{
 		if (UAEAdaptiveEnvWorldSubsystem* Subsystem =
@@ -57,6 +78,7 @@ bool UAEPathHeatmapRendererComponent::InitializeVisualOutput(
 	if (GridDimensions.X <= 0 || GridDimensions.Y <= 0
 		|| !GridWorldBounds.bIsValid)
 	{
+		DisableMaterialOutput();
 		return false;
 	}
 
@@ -89,7 +111,25 @@ bool UAEPathHeatmapRendererComponent::InitializeVisualOutput(
 		1.0 / WorldSize.Y);
 	PendingCommands.Reset();
 	PendingCommandPositions.Reset();
-	return BindLandscapeMaterialParameters();
+	BindMaterialOutputs();
+	return true;
+}
+
+/* Rebind configured outputs to the current Render Target without changing its contents. */
+bool UAEPathHeatmapRendererComponent::RefreshMaterialBindings()
+{
+	check(IsInGameThread());
+	if (!IsValid(PathHeatmapRenderTarget))
+	{
+		UE_LOG(
+			LogAdaptiveEnv,
+			Warning,
+			TEXT("M6 material outputs cannot refresh before Render Target initialization. World=%s Owner=%s"),
+			*GetNameSafe(GetWorld()),
+			*GetNameSafe(GetOwner()));
+		return false;
+	}
+	return BindMaterialOutputs() > 0;
 }
 
 /* Keep only the newest command for each Cell while preserving bounded storage. */
@@ -173,7 +213,7 @@ void UAEPathHeatmapRendererComponent::ApplyVisualBudget(
 	RebuildPendingCommandLookup();
 }
 
-/* Clear transient visual state and turn off Landscape sampling. */
+/* Clear transient visual state and turn off material sampling. */
 void UAEPathHeatmapRendererComponent::ResetVisualOutput()
 {
 	check(IsInGameThread());
@@ -190,16 +230,51 @@ void UAEPathHeatmapRendererComponent::ResetVisualOutput()
 	DisableMaterialOutput();
 }
 
-/* Push the documented M6 texture and spatial constants into the Landscape material. */
-bool UAEPathHeatmapRendererComponent::BindLandscapeMaterialParameters()
+/* Replace all material outputs while preserving the shared Render Target contents. */
+int32 UAEPathHeatmapRendererComponent::BindMaterialOutputs()
 {
-	if (!IsValid(TargetLandscape) || !IsValid(PathHeatmapRenderTarget))
+	check(IsInGameThread());
+	DisableMaterialOutput();
+	ReleaseMeshMaterialBindings();
+	BoundLandscape.Reset();
+	BoundMaterialOutputCount = 0;
+
+	if (BindLandscapeMaterialParameters())
+	{
+		++BoundMaterialOutputCount;
+	}
+	int32 RejectedMeshBindingCount = 0;
+	BoundMaterialOutputCount += BindMeshMaterialParameters(RejectedMeshBindingCount);
+
+	if (BoundMaterialOutputCount == 0)
 	{
 		UE_LOG(
 			LogAdaptiveEnv,
 			Warning,
-			TEXT("M6 visual output has no valid Landscape binding. Owner=%s"),
-			*GetNameSafe(GetOwner()));
+			TEXT("M6 Render Target is ready but no material output was bound. World=%s Owner=%s MeshRejected=%d"),
+			*GetNameSafe(GetWorld()),
+			*GetNameSafe(GetOwner()),
+			RejectedMeshBindingCount);
+	}
+	else if (RejectedMeshBindingCount > 0)
+	{
+		UE_LOG(
+			LogAdaptiveEnv,
+			Warning,
+			TEXT("M6 material binding partially succeeded. World=%s Owner=%s Bound=%d MeshRejected=%d"),
+			*GetNameSafe(GetWorld()),
+			*GetNameSafe(GetOwner()),
+			BoundMaterialOutputCount,
+			RejectedMeshBindingCount);
+	}
+	return BoundMaterialOutputCount;
+}
+
+/* Push the documented M6 texture and spatial constants into the optional Landscape material. */
+bool UAEPathHeatmapRendererComponent::BindLandscapeMaterialParameters()
+{
+	if (!IsValid(TargetLandscape) || !IsValid(PathHeatmapRenderTarget))
+	{
 		return false;
 	}
 	const UAdaptiveEnvSettings* Settings = GetDefault<UAdaptiveEnvSettings>();
@@ -212,19 +287,139 @@ bool UAEPathHeatmapRendererComponent::BindLandscapeMaterialParameters()
 	TargetLandscape->SetLandscapeMaterialScalarParameterValue(
 		Settings->M6EnabledParameterName,
 		1.0f);
+	BoundLandscape = TargetLandscape;
 	return true;
+}
+
+/* Create one owned MID for every valid unique Mesh material-slot binding. */
+int32 UAEPathHeatmapRendererComponent::BindMeshMaterialParameters(
+	int32& OutRejectedBindingCount)
+{
+	OutRejectedBindingCount = 0;
+	int32 BoundCount = 0;
+	for (const FAEPathMeshMaterialBinding& Binding : TargetMeshMaterials)
+	{
+		UMeshComponent* MeshComponent = Binding.MeshComponent.Get();
+		const bool bDuplicate = RuntimeMeshMaterialBindings.ContainsByPredicate(
+			[MeshComponent, &Binding](const FRuntimeMeshMaterialBinding& RuntimeBinding)
+			{
+				return RuntimeBinding.MeshComponent.Get() == MeshComponent
+					&& RuntimeBinding.MaterialSlotIndex == Binding.MaterialSlotIndex;
+			});
+		if (!IsValid(MeshComponent)
+			|| MeshComponent->GetWorld() != GetWorld()
+			|| Binding.MaterialSlotIndex < 0
+			|| Binding.MaterialSlotIndex >= MeshComponent->GetNumMaterials()
+			|| bDuplicate)
+		{
+			++OutRejectedBindingCount;
+			continue;
+		}
+
+		UMaterialInterface* OriginalMaterial = MeshComponent->GetMaterial(Binding.MaterialSlotIndex);
+		if (!IsValid(OriginalMaterial)
+			|| !SupportsRequiredMeshMaterialParameters(*OriginalMaterial))
+		{
+			++OutRejectedBindingCount;
+			continue;
+		}
+
+		UMaterialInstanceDynamic* DynamicMaterial = MeshComponent->CreateDynamicMaterialInstance(
+			Binding.MaterialSlotIndex,
+			OriginalMaterial);
+		if (!IsValid(DynamicMaterial))
+		{
+			++OutRejectedBindingCount;
+			continue;
+		}
+
+		ApplyMeshMaterialParameters(*DynamicMaterial);
+		FRuntimeMeshMaterialBinding& RuntimeBinding = RuntimeMeshMaterialBindings.AddDefaulted_GetRef();
+		RuntimeBinding.MeshComponent = MeshComponent;
+		RuntimeBinding.MaterialSlotIndex = Binding.MaterialSlotIndex;
+		RuntimeBinding.OriginalMaterial = OriginalMaterial;
+		RuntimeBinding.DynamicMaterial = DynamicMaterial;
+		++BoundCount;
+	}
+	return BoundCount;
+}
+
+/* Apply the shared texture, World XY transform, and enable gate to one Mesh MID. */
+void UAEPathHeatmapRendererComponent::ApplyMeshMaterialParameters(
+	UMaterialInstanceDynamic& Material) const
+{
+	const UAdaptiveEnvSettings* Settings = GetDefault<UAdaptiveEnvSettings>();
+	Material.SetTextureParameterValue(Settings->M6PathTextureParameterName, PathHeatmapRenderTarget);
+	Material.SetVectorParameterValue(Settings->M6GridTransformParameterName, GridTransform);
+	Material.SetScalarParameterValue(Settings->M6EnabledParameterName, 1.0f);
+}
+
+/* Require exact runtime parameter names before replacing a user Mesh material slot. */
+bool UAEPathHeatmapRendererComponent::SupportsRequiredMeshMaterialParameters(
+	const UMaterialInterface& Material) const
+{
+	const UAdaptiveEnvSettings* Settings = GetDefault<UAdaptiveEnvSettings>();
+	TArray<FMaterialParameterInfo> Parameters;
+	TArray<FGuid> ParameterIds;
+
+	Material.GetAllTextureParameterInfo(Parameters, ParameterIds);
+	const bool bHasTexture = AEPathHeatmapRendererPrivate::ContainsParameterName(
+		Parameters,
+		Settings->M6PathTextureParameterName);
+	Parameters.Reset();
+	ParameterIds.Reset();
+	Material.GetAllVectorParameterInfo(Parameters, ParameterIds);
+	const bool bHasTransform = AEPathHeatmapRendererPrivate::ContainsParameterName(
+		Parameters,
+		Settings->M6GridTransformParameterName);
+	Parameters.Reset();
+	ParameterIds.Reset();
+	Material.GetAllScalarParameterInfo(Parameters, ParameterIds);
+	const bool bHasEnabled = AEPathHeatmapRendererPrivate::ContainsParameterName(
+		Parameters,
+		Settings->M6EnabledParameterName);
+	return bHasTexture && bHasTransform && bHasEnabled;
 }
 
 /* Disable material sampling without clearing authoritative M6 state. */
 void UAEPathHeatmapRendererComponent::DisableMaterialOutput()
 {
-	if (IsValid(TargetLandscape))
+	if (ALandscapeProxy* Landscape = BoundLandscape.Get())
 	{
 		const UAdaptiveEnvSettings* Settings = GetDefault<UAdaptiveEnvSettings>();
-		TargetLandscape->SetLandscapeMaterialScalarParameterValue(
+		Landscape->SetLandscapeMaterialScalarParameterValue(
 			Settings->M6EnabledParameterName,
 			0.0f);
 	}
+	const FName EnabledParameterName = GetDefault<UAdaptiveEnvSettings>()->M6EnabledParameterName;
+	for (const FRuntimeMeshMaterialBinding& Binding : RuntimeMeshMaterialBindings)
+	{
+		if (UMaterialInstanceDynamic* DynamicMaterial = Binding.DynamicMaterial.Get())
+		{
+			DynamicMaterial->SetScalarParameterValue(EnabledParameterName, 0.0f);
+		}
+	}
+}
+
+/* Restore only slots that still contain a material instance owned by this Renderer. */
+void UAEPathHeatmapRendererComponent::ReleaseMeshMaterialBindings()
+{
+	for (const FRuntimeMeshMaterialBinding& Binding : RuntimeMeshMaterialBindings)
+	{
+		UMeshComponent* MeshComponent = Binding.MeshComponent.Get();
+		UMaterialInstanceDynamic* DynamicMaterial = Binding.DynamicMaterial.Get();
+		UMaterialInterface* OriginalMaterial = Binding.OriginalMaterial.Get();
+		if (IsValid(MeshComponent)
+			&& IsValid(DynamicMaterial)
+			&& IsValid(OriginalMaterial)
+			&& Binding.MaterialSlotIndex >= 0
+			&& Binding.MaterialSlotIndex < MeshComponent->GetNumMaterials()
+			&& MeshComponent->GetMaterial(Binding.MaterialSlotIndex) == DynamicMaterial)
+		{
+			MeshComponent->SetMaterial(Binding.MaterialSlotIndex, OriginalMaterial);
+		}
+	}
+	RuntimeMeshMaterialBindings.Reset();
 }
 
 /* Restore command positions after stable-prefix removal. */
