@@ -26,6 +26,8 @@ void UAEAdaptiveEnvWorldSubsystem::Initialize(FSubsystemCollectionBase& Collecti
 	InstanceId = FGuid::NewGuid();
 	TickCount = 0;
 	M8UpdateCursor = 0;
+	bObservationPaused = false;
+	LastRenderedDebugCellIndices.Reset();
 	const UAdaptiveEnvSettings* Settings = GetDefault<UAdaptiveEnvSettings>();
 	bRuntimeEnabled = Settings->bEnableRuntime;
 	BehaviourStepSeconds = 1.0f / FMath::Max(Settings->BehaviourSampleRateHz, 1.0f);
@@ -114,6 +116,7 @@ void UAEAdaptiveEnvWorldSubsystem::Deinitialize()
 
 	// Stop ticking and clear registrations, queues, order guards, and grid data.
 	bRuntimeEnabled = false;
+	bObservationPaused = false;
 	RegisteredTrackers.Reset();
 	PendingTrackerAdds.Reset();
 	PendingTrackerRemoves.Reset();
@@ -158,6 +161,7 @@ void UAEAdaptiveEnvWorldSubsystem::Deinitialize()
 	PendingSamples.Reset();
 	ProcessingSamples.Reset();
 	PendingDebugActiveCellIndices.Reset();
+	LastRenderedDebugCellIndices.Reset();
 	LastQueuedSequenceByAgent.Reset();
 	LastQueuedTimestampByAgent.Reset();
 	BehaviourGrid.Reset();
@@ -181,6 +185,12 @@ void UAEAdaptiveEnvWorldSubsystem::Tick(float DeltaTime)
 	// Apply deferred registrations before any service iterates active arrays.
 	++TickCount;
 	ApplyPendingRegistrations();
+	if (bObservationPaused)
+	{
+		// Keep transient debug drawing alive without advancing any simulation stage.
+		UpdateDebugRenderers(DeltaTime);
+		return;
+	}
 
 	// Convert render time into a bounded number of fixed behaviour steps.
 	const double SafeDeltaTime = FMath::Max(static_cast<double>(DeltaTime), 0.0);
@@ -226,6 +236,16 @@ void UAEAdaptiveEnvWorldSubsystem::Tick(float DeltaTime)
 bool UAEAdaptiveEnvWorldSubsystem::IsTickable() const
 {
 	return bRuntimeEnabled && IsInitialized();
+}
+
+// Freeze simulation while preserving the latest debug Cell selection for observation.
+void UAEAdaptiveEnvWorldSubsystem::SetObservationPaused(const bool bPaused)
+{
+	if (bPaused && !bObservationPaused && !PendingDebugActiveCellIndices.IsEmpty())
+	{
+		LastRenderedDebugCellIndices = PendingDebugActiveCellIndices;
+	}
+	bObservationPaused = bPaused;
 }
 
 // Register this tickable object with Unreal performance statistics.
@@ -710,6 +730,7 @@ void UAEAdaptiveEnvWorldSubsystem::ResetBehaviourGrid()
 	ProcessedBehaviourStepCount = 0;
 	SchedulerOverrunCount = 0;
 	PendingDebugActiveCellIndices.Reset();
+	LastRenderedDebugCellIndices.Reset();
 	// Reset each valid tracker so its next observation is treated as the first.
 	for (const TWeakObjectPtr<UAEBehaviourTrackerComponent>& Tracker : RegisteredTrackers)
 	{
@@ -1538,7 +1559,10 @@ void UAEAdaptiveEnvWorldSubsystem::BuildDebugCellCoordinates(
 	TArray<FIntPoint>& OutCoordinates) const
 {
 	OutCoordinates.Reset();
-	if (MaxCells <= 0 || PendingDebugActiveCellIndices.IsEmpty())
+	const TSet<int32>& SourceCellIndices = bObservationPaused
+		? LastRenderedDebugCellIndices
+		: PendingDebugActiveCellIndices;
+	if (MaxCells <= 0 || SourceCellIndices.IsEmpty())
 	{
 		return;
 	}
@@ -1554,7 +1578,7 @@ void UAEAdaptiveEnvWorldSubsystem::BuildDebugCellCoordinates(
 	const int32 CellCount = Config.Dimensions.X * Config.Dimensions.Y;
 	const int32 NeighbourRadius = FMath::Max(GetDefault<UAdaptiveEnvSettings>()->DebugActiveNeighbourRadiusCells, 0);
 	TBitArray<> IncludedFlags(false, CellCount);
-	for (const int32 ActiveIndex : PendingDebugActiveCellIndices)
+	for (const int32 ActiveIndex : SourceCellIndices)
 	{
 		if (ActiveIndex < 0 || ActiveIndex >= CellCount)
 		{
@@ -1618,6 +1642,10 @@ void UAEAdaptiveEnvWorldSubsystem::UpdateDebugRenderers(const float DeltaTime)
 		return;
 	}
 	DebugAccumulator = FMath::Fmod(DebugAccumulator, RefreshStep);
+	if (!bObservationPaused && !PendingDebugActiveCellIndices.IsEmpty())
+	{
+		LastRenderedDebugCellIndices = PendingDebugActiveCellIndices;
+	}
 
 	// Render only through valid weak registrations.
 	for (const TWeakObjectPtr<UAEHeatmapRendererComponent>& Renderer : RegisteredRenderers)
@@ -1629,7 +1657,10 @@ void UAEAdaptiveEnvWorldSubsystem::UpdateDebugRenderers(const float DeltaTime)
 	}
 
 	// Start a fresh activity window only after every renderer consumed this refresh.
-	PendingDebugActiveCellIndices.Reset();
+	if (!bObservationPaused)
+	{
+		PendingDebugActiveCellIndices.Reset();
+	}
 }
 
 // Validate sample identity, finite values, ranges, and supported tags.

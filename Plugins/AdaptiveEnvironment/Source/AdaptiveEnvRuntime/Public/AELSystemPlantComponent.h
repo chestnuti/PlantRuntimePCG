@@ -147,6 +147,8 @@ private:
 		TWeakObjectPtr<UMaterialInstanceDynamic> LeafMaterialInstance;
 		/* Stores persistent structural state independent from M7 recovery. */
 		EAEBranchStructuralState StructuralState = EAEBranchStructuralState::Intact;
+		/* Latches full material retirement after persistent dead wood finishes fading. */
+		bool bPersistentDeathFadeLocked = false;
 		/* Reports whether detached geometry is still visible and physical. */
 		bool bDetachedDebrisAlive = false;
 		/* Stores fixed simulation time in seconds when detached geometry expires. */

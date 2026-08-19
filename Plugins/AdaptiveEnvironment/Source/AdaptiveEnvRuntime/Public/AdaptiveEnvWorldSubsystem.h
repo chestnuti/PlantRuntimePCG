@@ -49,6 +49,14 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Adaptive Environment")
 	int64 GetTickCount() const { return TickCount; }
 
+	/* Pauses the ordered runtime pipeline for replay observation without pausing the World. */
+	UFUNCTION(BlueprintCallable, Category = "Adaptive Environment|Runtime")
+	void SetObservationPaused(bool bPaused);
+
+	/* Returns whether replay observation currently freezes the ordered runtime pipeline. */
+	UFUNCTION(BlueprintPure, Category = "Adaptive Environment|Runtime")
+	bool IsObservationPaused() const { return bObservationPaused; }
+
 	/* Returns elapsed fixed-step behaviour time in seconds. */
 	UFUNCTION(BlueprintPure, Category = "Adaptive Environment|Behaviour")
 	double GetBehaviourTimeSeconds() const { return BehaviourTimeSeconds; }
@@ -285,6 +293,8 @@ private:
 	int64 TickCount = 0;
 	/* Controls whether the ordered runtime pipeline can tick. */
 	bool bRuntimeEnabled = false;
+	/* Freezes fixed-step and visual advancement while replay observation is active. */
+	bool bObservationPaused = false;
 	/* Owns raw two-dimensional behaviour aggregation. */
 	FAEHeatmapGrid BehaviourGrid;
 	/* Owns derived M3 Exposure state aligned with the raw Grid. */
@@ -325,6 +335,8 @@ private:
 	double M6VisualAccumulator = 0.0;
 	/* Stores unique raw Cell indices changed since the previous debug refresh. */
 	TSet<int32> PendingDebugActiveCellIndices;
+	/* Stores the Cell selection used by the latest debug refresh. */
+	TSet<int32> LastRenderedDebugCellIndices;
 	/* Stores one fixed behaviour step duration in seconds. */
 	float BehaviourStepSeconds = 0.1f;
 	/* Caps fixed behaviour steps executed during one render frame. */

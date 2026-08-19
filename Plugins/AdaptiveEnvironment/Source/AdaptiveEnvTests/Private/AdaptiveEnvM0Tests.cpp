@@ -102,6 +102,18 @@ bool FAEWorldSubsystemSingletonTest::RunTest(const FString& Parameters)
 	TestNotNull(TEXT("Adaptive subsystem"), First);
 	TestTrue(TEXT("One subsystem per world"), First == Second);
 	TestTrue(TEXT("Instance ID is valid"), First != nullptr && First->GetInstanceId().IsValid());
+	TestFalse(TEXT("Observation pause is disabled initially"), First != nullptr && First->IsObservationPaused());
+	if (First != nullptr)
+	{
+		const double TimeBeforePause = First->GetBehaviourTimeSeconds();
+		First->SetObservationPaused(true);
+		TestTrue(TEXT("Observation pause can freeze the scheduler"), First->IsObservationPaused());
+		TestTrue(TEXT("Subsystem remains tickable for paused debug rendering"), First->IsTickable());
+		First->Tick(1.0f);
+		TestEqual(TEXT("Observation pause does not advance behaviour time"), First->GetBehaviourTimeSeconds(), TimeBeforePause);
+		First->SetObservationPaused(false);
+		TestFalse(TEXT("Observation pause can resume the scheduler"), First->IsObservationPaused());
+	}
 
 	// Destroy the transient World after all assertions complete.
 	TestWorld->DestroyWorld(false);

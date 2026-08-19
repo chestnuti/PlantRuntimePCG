@@ -27,6 +27,57 @@ namespace AdaptiveEnvM8Tests
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FAEM8PersistentDeadWoodDeathFadeTest,
+	"AdaptiveEnv.M8.Material.PersistentDeadWoodKeepsDeathFade",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+/* Verify M7 recovery cannot reduce the material retirement mask on persistent dead wood. */
+bool FAEM8PersistentDeadWoodDeathFadeTest::RunTest(const FString& Parameters)
+{
+	bool bPersistentFadeLocked = false;
+	TestEqual(
+		TEXT("Dead wood preserves an incomplete source fade"),
+		FAEM8MaterialPolicy::ResolveDeathFadeRatio(
+			0.35f,
+			EAEBranchStructuralState::DeadWood,
+			bPersistentFadeLocked),
+		0.35f);
+	TestFalse(TEXT("Incomplete dead wood fade is not locked"), bPersistentFadeLocked);
+	TestEqual(
+		TEXT("Completed dead wood fade reaches full retirement"),
+		FAEM8MaterialPolicy::ResolveDeathFadeRatio(
+			1.0f,
+			EAEBranchStructuralState::DeadWood,
+			bPersistentFadeLocked),
+		1.0f);
+	TestTrue(TEXT("Completed dead wood fade becomes locked"), bPersistentFadeLocked);
+	TestEqual(
+		TEXT("Locked dead wood remains retired after source recovery"),
+		FAEM8MaterialPolicy::ResolveDeathFadeRatio(
+			0.0f,
+			EAEBranchStructuralState::DeadWood,
+			bPersistentFadeLocked),
+		1.0f);
+	bPersistentFadeLocked = true;
+	TestEqual(
+		TEXT("Intact modules retain reversible source fade"),
+		FAEM8MaterialPolicy::ResolveDeathFadeRatio(
+			0.35f,
+			EAEBranchStructuralState::Intact,
+			bPersistentFadeLocked),
+		0.35f);
+	TestFalse(TEXT("Non-dead-wood modules clear stale fade locks"), bPersistentFadeLocked);
+	TestEqual(
+		TEXT("Reversible source fade remains normalized"),
+		FAEM8MaterialPolicy::ResolveDeathFadeRatio(
+			2.0f,
+			EAEBranchStructuralState::Stressed,
+			bPersistentFadeLocked),
+		1.0f);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FAEM8FixedSeedDeterminismTest,
 	"AdaptiveEnv.M8.Grammar.FixedSeedDeterminism",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)

@@ -341,3 +341,12 @@ struct ADAPTIVEENVRUNTIME_API FAEM8PoolPolicy
 	/* Returns whether an actor can enter Available without leaking live debris. */
 	static bool CanReturnToAvailable(int32 LiveDetachedBranchCount);
 };
+
+struct ADAPTIVEENVRUNTIME_API FAEM8MaterialPolicy
+{
+	/* Latches persistent dead wood only after its reversible source fade completes. */
+	static float ResolveDeathFadeRatio(
+		float SourceDeathFadeRatio,
+		EAEBranchStructuralState StructuralState,
+		bool& bInOutPersistentFadeLocked);
+};
