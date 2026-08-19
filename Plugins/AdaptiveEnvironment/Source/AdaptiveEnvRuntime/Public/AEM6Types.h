@@ -5,8 +5,8 @@
 
 namespace AdaptiveEnvM6
 {
-	/* Identifies RG signed Flow, reserved B, and A Path Intensity encoding. */
-	inline constexpr uint32 PathHeatmapTextureEncodingVersion = 2;
+	/* Identifies supersampled Flow-capsule RG and Path Intensity A encoding. */
+	inline constexpr uint32 PathHeatmapTextureEncodingVersion = 3;
 }
 
 /* Stores validated deterministic M6 path-visual parameters. */

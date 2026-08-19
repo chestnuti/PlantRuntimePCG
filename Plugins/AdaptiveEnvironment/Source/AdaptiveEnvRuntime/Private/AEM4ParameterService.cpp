@@ -2,21 +2,6 @@
 
 namespace AEM4ParameterServicePrivate
 {
-	/* Reads one exact effective value from a validated canonical M4 block. */
-	bool Read(const FAEParameterBlock& Block, const TCHAR* Name, double& OutValue, FAEM4ValidationResult& Result)
-	{
-		for (const FAEPublishedParameter& Parameter : Block.Parameters)
-		{
-			if (Parameter.Name == FName(Name))
-			{
-				OutValue = Parameter.EffectiveValue;
-				return true;
-			}
-		}
-		Result.Add(TEXT("AE-M4-PARAM-001"), FString::Printf(TEXT("Parameter %s is missing from the validated M4 block."), Name));
-		return false;
-	}
-
 	/* Returns linear slope suitability inside the two configured angle boundaries. */
 	double SlopeSuitability(const double SlopeDegrees, const FAEConstraintResponseParameters& Parameters)
 	{
@@ -72,33 +57,6 @@ FString FAEM4ValidationResult::ToString() const
 {
 	// Preserve validation order in one initialization-safe message.
 	return FString::Join(Issues, TEXT(" | "));
-}
-
-/* Maps one validated M4 block into grouped values and applies relationship gates. */
-FAEM4ValidationResult FAEM4ParameterService::BuildParameterSet(const FAEParameterBlockView& Block, const FAEParameterBundleIdentity& BundleIdentity, FAEM4ParameterSet& OutParameters)
-{
-	FAEM4ValidationResult Result;
-	if (!Block.IsValid() || !BundleIdentity.BundleId.IsValid() || BundleIdentity.SemanticVersion.IsEmpty() || BundleIdentity.ContentHash.Len() != 64)
-	{
-		Result.Add(TEXT("AE-M4-PARAM-006"), TEXT("Bundle identity or M4 block view is invalid."));
-		return Result;
-	}
-
-	FAEM4ParameterSet Candidate;
-	// Map all transport names once into the two runtime responsibility groups.
-	AEM4ParameterServicePrivate::Read(*Block.Block, TEXT("ActiveThreshold"), Candidate.RegionState.ActiveThreshold, Result);
-	AEM4ParameterServicePrivate::Read(*Block.Block, TEXT("HysteresisWidth"), Candidate.RegionState.HysteresisWidth, Result);
-	AEM4ParameterServicePrivate::Read(*Block.Block, TEXT("MoistureOptimalMaximumRatio"), Candidate.ConstraintResponse.MoistureOptimalMaximumRatio, Result);
-	AEM4ParameterServicePrivate::Read(*Block.Block, TEXT("MoistureOptimalMinimumRatio"), Candidate.ConstraintResponse.MoistureOptimalMinimumRatio, Result);
-	AEM4ParameterServicePrivate::Read(*Block.Block, TEXT("MoistureToleranceWidthRatio"), Candidate.ConstraintResponse.MoistureToleranceWidthRatio, Result);
-	AEM4ParameterServicePrivate::Read(*Block.Block, TEXT("OverusedThreshold"), Candidate.RegionState.OverusedThreshold, Result);
-	AEM4ParameterServicePrivate::Read(*Block.Block, TEXT("SlopeFullySuitableDegrees"), Candidate.ConstraintResponse.SlopeFullySuitableDegrees, Result);
-	AEM4ParameterServicePrivate::Read(*Block.Block, TEXT("SlopeUnsuitableDegrees"), Candidate.ConstraintResponse.SlopeUnsuitableDegrees, Result);
-	AEM4ParameterServicePrivate::Read(*Block.Block, TEXT("TransitionDebounceSimulationHours"), Candidate.RegionState.TransitionDebounceSimulationHours, Result);
-	const FAEM4ValidationResult Numeric = ValidateParameterSet(Candidate);
-	Result.Issues.Append(Numeric.Issues);
-	if (Result.IsValid()) OutParameters = Candidate;
-	return Result;
 }
 
 /* Validates numeric ranges, threshold ordering, hysteresis boundaries, and debounce. */

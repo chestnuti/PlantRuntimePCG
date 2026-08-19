@@ -4,7 +4,7 @@
 #include "Engine/DeveloperSettings.h"
 #include "AdaptiveEnvSettings.generated.h"
 
-class UAEPublishedParameterBundleAsset;
+class UAEAdaptiveEnvironmentProfile;
 
 UCLASS(Config = AdaptiveEnvironment, DefaultConfig, meta = (DisplayName = "Adaptive Environment"))
 class ADAPTIVEENVRUNTIME_API UAdaptiveEnvSettings final : public UDeveloperSettings
@@ -22,17 +22,9 @@ public:
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Runtime")
 	bool bEnableRuntime = true;
 
-	/* Enables M3 Exposure when a valid parameter bundle is configured. */
-	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Parameters")
-	bool bEnableM3 = true;
-
-	/* Enables M4 constraint and state decisions from the same validated parameter snapshot. */
-	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Parameters")
-	bool bEnableM4 = true;
-
-	/* Enables M5 impact fusion and ecological response from the validated bundle. */
-	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Parameters")
-	bool bEnableM5 = true;
+	/* Enables the complete M3 through M5 adaptive ecology pipeline. */
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Adaptive Ecology")
+	bool bEnableAdaptiveEcology = true;
 
 	/* Enables M6 path visual state and registered material outputs when M5 is active. */
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "M6")
@@ -46,9 +38,9 @@ public:
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "M8")
 	bool bEnableM8 = true;
 
-	/* References the single published bundle that atomically supplies M3, M4, and M5 parameters. */
-	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Parameters")
-	TSoftObjectPtr<UAEPublishedParameterBundleAsset> ParameterBundle;
+	/* References the single product profile that atomically configures M3, M4, and M5. */
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Adaptive Ecology")
+	TSoftObjectPtr<UAEAdaptiveEnvironmentProfile> EnvironmentProfile;
 
 	/* Controls behaviour sampling frequency in samples per second. */
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Runtime", meta = (ClampMin = "1.0", UIMin = "1.0"))
@@ -126,10 +118,6 @@ public:
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "M4", meta = (ClampMin = "1.0"))
 	float M4GroundTraceHalfHeightCm = 100000.0f;
 
-	/* Supplies normalized moisture when no registered source contains an M4 Cell. */
-	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "M4", meta = (ClampMin = "0.0", ClampMax = "1.0"))
-	float M4DefaultMoistureRatio = 0.5f;
-
 	/* Starts the M6 path target above this normalized M5 Damage value. */
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "M6|State", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float M6VisibleDamageThresholdRatio = 0.15f;
@@ -158,6 +146,18 @@ public:
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "M6|Renderer", meta = (ClampMin = "1"))
 	int32 M6MaxVisualCommandsPerFrame = 1024;
 
+	/* Allocates this many visual pixels along one M6 Cell edge. */
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "M6|Renderer", meta = (ClampMin = "1", ClampMax = "8"))
+	int32 M6VisualPixelsPerCell = 4;
+
+	/* Defines the reconstructed path half-width in world centimetres. */
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "M6|Renderer", meta = (ClampMin = "1.0"))
+	float M6PathHalfWidthCm = 35.0f;
+
+	/* Defines each Flow-oriented segment half-length in Cell units. */
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "M6|Renderer", meta = (ClampMin = "0.5", ClampMax = "1.0"))
+	float M6SegmentHalfLengthCells = 0.75f;
+
 	/* Limits M7 instance custom-data and transform writes per registered component and frame. */
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "M7|Renderer", meta = (ClampMin = "1"))
 	int32 M7MaxInstanceUpdatesPerFrame = 2048;
@@ -184,5 +184,5 @@ public:
 
 	/* Identifies the serialized settings schema version. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Version")
-	int32 SettingsSchemaVersion = 11;
+	int32 SettingsSchemaVersion = 14;
 };

@@ -1,13 +1,26 @@
-#include "Modules/ModuleManager.h"
+#include "AdaptiveEnvEditorModule.h"
 
-/* Registers the editor-only parameter bundle import module. */
-class FAdaptiveEnvEditorModule final : public IModuleInterface
+#include "AEWorldScalarFieldAssetCustomization.h"
+#include "Modules/ModuleManager.h"
+#include "PropertyEditorModule.h"
+
+void FAdaptiveEnvEditorModule::StartupModule()
 {
-public:
-	/* Starts the stateless editor extension. */
-	virtual void StartupModule() override {}
-	/* Stops the stateless editor extension. */
-	virtual void ShutdownModule() override {}
-};
+	FPropertyEditorModule& PropertyEditor = FModuleManager::LoadModuleChecked<FPropertyEditorModule>(TEXT("PropertyEditor"));
+	PropertyEditor.RegisterCustomClassLayout(
+		TEXT("AEWorldScalarFieldAsset"),
+		FOnGetDetailCustomizationInstance::CreateStatic(&FAEWorldScalarFieldAssetCustomization::MakeInstance));
+	PropertyEditor.NotifyCustomizationModuleChanged();
+}
+
+void FAdaptiveEnvEditorModule::ShutdownModule()
+{
+	if (FModuleManager::Get().IsModuleLoaded(TEXT("PropertyEditor")))
+	{
+		FPropertyEditorModule& PropertyEditor = FModuleManager::GetModuleChecked<FPropertyEditorModule>(TEXT("PropertyEditor"));
+		PropertyEditor.UnregisterCustomClassLayout(TEXT("AEWorldScalarFieldAsset"));
+		PropertyEditor.NotifyCustomizationModuleChanged();
+	}
+}
 
 IMPLEMENT_MODULE(FAdaptiveEnvEditorModule, AdaptiveEnvEditor)

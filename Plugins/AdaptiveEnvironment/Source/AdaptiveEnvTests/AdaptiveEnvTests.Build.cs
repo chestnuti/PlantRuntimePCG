@@ -12,9 +12,7 @@ public class AdaptiveEnvTests : ModuleRules
 			"CoreUObject",
 			"Engine",
 			"GameplayTags",
-			"UnrealEd",
-			"AdaptiveEnvRuntime",
-			"AdaptiveEnvEditor"
+			"AdaptiveEnvRuntime"
 		});
 	}
 }

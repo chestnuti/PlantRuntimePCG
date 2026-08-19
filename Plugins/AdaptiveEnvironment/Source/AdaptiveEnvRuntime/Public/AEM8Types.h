@@ -158,6 +158,9 @@ struct ADAPTIVEENVRUNTIME_API FAELSystemManualState
 	/* Supplies manual visibility when no M7 snapshot is consumed. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Adaptive Environment|M8|Manual")
 	bool bVisible = true;
+	/* Supplies manual masked retirement progress from visible to fully hidden. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Adaptive Environment|M8|Manual", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float DeathFadeRatio = 0.0f;
 };
 
 USTRUCT(BlueprintType)
@@ -183,6 +186,9 @@ struct ADAPTIVEENVRUNTIME_API FAELSystemResolvedPlantState
 	/* Reports whether the complete M8 plant should be visible. */
 	UPROPERTY(BlueprintReadOnly, Category = "Adaptive Environment|M8")
 	bool bVisible = true;
+	/* Reports masked retirement progress inherited from M7 or manual input. */
+	UPROPERTY(BlueprintReadOnly, Category = "Adaptive Environment|M8")
+	float DeathFadeRatio = 0.0f;
 	/* Identifies the source fixed simulation step, or zero for manual input. */
 	UPROPERTY(BlueprintReadOnly, Category = "Adaptive Environment|M8")
 	int64 SourceSimulationStep = 0;
@@ -334,4 +340,13 @@ struct ADAPTIVEENVRUNTIME_API FAEM8PoolPolicy
 	static bool IsDetachedBranchExpired(double CurrentTimeSeconds, double ExpireTimeSeconds);
 	/* Returns whether an actor can enter Available without leaking live debris. */
 	static bool CanReturnToAvailable(int32 LiveDetachedBranchCount);
+};
+
+struct ADAPTIVEENVRUNTIME_API FAEM8MaterialPolicy
+{
+	/* Latches persistent dead wood only after its reversible source fade completes. */
+	static float ResolveDeathFadeRatio(
+		float SourceDeathFadeRatio,
+		EAEBranchStructuralState StructuralState,
+		bool& bInOutPersistentFadeLocked);
 };

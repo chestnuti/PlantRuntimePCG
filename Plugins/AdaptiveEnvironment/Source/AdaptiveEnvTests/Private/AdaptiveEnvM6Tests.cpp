@@ -3,6 +3,15 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "AEPathHeatmapGrid.h"
+#include "AEPathHeatmapRendererComponent.h"
+#include "AdaptiveEnvSettings.h"
+#include "Components/StaticMeshComponent.h"
+#include "Engine/StaticMesh.h"
+#include "Engine/TextureRenderTarget2D.h"
+#include "Engine/World.h"
+#include "GameFramework/Actor.h"
+#include "Materials/MaterialInstanceDynamic.h"
+#include "Materials/MaterialInterface.h"
 
 namespace AdaptiveEnvM6Tests
 {
@@ -172,6 +181,114 @@ bool FAEM6FlowEncodingTest::RunTest(const FString& Parameters)
 	FAEPathHeatmapSnapshot Snapshot;
 	TestTrue(TEXT("Flow Cell is queryable"), Grid.GetCellSnapshot(FIntPoint::ZeroValue, Snapshot));
 	TestTrue(TEXT("Snapshot retains weighted Flow"), Snapshot.FlowVector.Equals(FVector2D(0.5, 0.0), 1.0e-6));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FAEM6MeshMaterialBindingTest,
+	"AdaptiveEnv.M6.Renderer.MeshMaterialBinding",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+/* Verifies one Mesh slot receives the shared M6 texture contract through an owned MID. */
+bool FAEM6MeshMaterialBindingTest::RunTest(const FString& Parameters)
+{
+	const FName WorldName = MakeUniqueObjectName(
+		GetTransientPackage(),
+		UWorld::StaticClass(),
+		TEXT("AE_M6_MeshMaterialWorld"));
+	UWorld* World = UWorld::CreateWorld(EWorldType::Game, false, WorldName, GetTransientPackage(), true);
+	TestNotNull(TEXT("Temporary World"), World);
+	if (World == nullptr)
+	{
+		return false;
+	}
+
+	UStaticMesh* PlaneMesh = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Plane.Plane"));
+	UMaterialInterface* PathMaterial = LoadObject<UMaterialInterface>(
+		nullptr,
+		TEXT("/Game/TopDown/Materials/M_Landscape.M_Landscape"));
+	TestNotNull(TEXT("Engine plane Mesh"), PlaneMesh);
+	TestNotNull(TEXT("Product M6 material"), PathMaterial);
+	if (PlaneMesh == nullptr || PathMaterial == nullptr)
+	{
+		World->DestroyWorld(false);
+		return false;
+	}
+
+	AActor* Owner = World->SpawnActor<AActor>();
+	UStaticMeshComponent* MeshComponent = NewObject<UStaticMeshComponent>(Owner);
+	Owner->AddInstanceComponent(MeshComponent);
+	Owner->SetRootComponent(MeshComponent);
+	MeshComponent->SetStaticMesh(PlaneMesh);
+	MeshComponent->SetMaterial(0, PathMaterial);
+	MeshComponent->RegisterComponent();
+
+	UAEPathHeatmapRendererComponent* Renderer = NewObject<UAEPathHeatmapRendererComponent>(Owner);
+	Owner->AddInstanceComponent(Renderer);
+	Renderer->RegisterComponent();
+	FAEPathMeshMaterialBinding& Binding = Renderer->TargetMeshMaterials.AddDefaulted_GetRef();
+	Binding.MeshComponent = MeshComponent;
+	Binding.MaterialSlotIndex = 0;
+	World->UpdateWorldComponents(false, false);
+
+	const FBox2D Bounds(FVector2D::ZeroVector, FVector2D(200.0, 400.0));
+	TestTrue(TEXT("M6 Render Target initializes for a Mesh output"), Renderer->InitializeVisualOutput(FIntPoint(2, 4), Bounds));
+	TestEqual(TEXT("One Mesh material output is bound"), Renderer->GetBoundMaterialOutputCount(), 1);
+	const UAdaptiveEnvSettings* Settings = GetDefault<UAdaptiveEnvSettings>();
+	UTextureRenderTarget2D* StateTarget = Renderer->GetPathStateRenderTarget();
+	UTextureRenderTarget2D* VisualTarget = Renderer->GetPathHeatmapRenderTarget();
+	TestNotNull(TEXT("M6 Cell-state Render Target"), StateTarget);
+	TestNotNull(TEXT("M6 supersampled visual Render Target"), VisualTarget);
+	if (StateTarget != nullptr && VisualTarget != nullptr)
+	{
+		const int32 PixelsPerCell = FMath::Clamp(Settings->M6VisualPixelsPerCell, 1, 8);
+		TestNotEqual(TEXT("State and visual outputs use separate resources"), StateTarget, VisualTarget);
+		TestEqual(TEXT("State width remains aligned to Grid Cells"), StateTarget->SizeX, 2);
+		TestEqual(TEXT("State height remains aligned to Grid Cells"), StateTarget->SizeY, 4);
+		TestEqual(TEXT("Visual width is supersampled"), VisualTarget->SizeX, 2 * PixelsPerCell);
+		TestEqual(TEXT("Visual height is supersampled"), VisualTarget->SizeY, 4 * PixelsPerCell);
+	}
+	UMaterialInstanceDynamic* DynamicMaterial = Cast<UMaterialInstanceDynamic>(MeshComponent->GetMaterial(0));
+	TestNotNull(TEXT("Mesh slot receives an MID"), DynamicMaterial);
+	if (DynamicMaterial != nullptr)
+	{
+		TestTrue(
+			TEXT("MID receives the shared M6 Render Target"),
+			DynamicMaterial->K2_GetTextureParameterValue(Settings->M6PathTextureParameterName)
+				== Renderer->GetPathHeatmapRenderTarget());
+		const FLinearColor Transform = DynamicMaterial->K2_GetVectorParameterValue(
+			Settings->M6GridTransformParameterName);
+		TestTrue(TEXT("MID receives WorldMin and inverse WorldSize"), Transform.Equals(
+			FLinearColor(0.0f, 0.0f, 1.0f / 200.0f, 1.0f / 400.0f),
+			1.0e-6f));
+		TestTrue(
+			TEXT("MID sampling is enabled"),
+			FMath::IsNearlyEqual(
+				DynamicMaterial->K2_GetScalarParameterValue(Settings->M6EnabledParameterName),
+				1.0f));
+
+		Renderer->ResetVisualOutput();
+		TestTrue(
+			TEXT("Reset disables Mesh material sampling"),
+			FMath::IsNearlyZero(
+				DynamicMaterial->K2_GetScalarParameterValue(Settings->M6EnabledParameterName)));
+
+		TestTrue(TEXT("Explicit refresh rebuilds configured outputs"), Renderer->RefreshMaterialBindings());
+		UMaterialInstanceDynamic* RefreshedMaterial = Cast<UMaterialInstanceDynamic>(MeshComponent->GetMaterial(0));
+		TestNotNull(TEXT("Refresh leaves one owned MID on the Mesh slot"), RefreshedMaterial);
+		if (RefreshedMaterial != nullptr)
+		{
+			TestNotEqual(TEXT("Refresh does not stack on the previous MID"), RefreshedMaterial, DynamicMaterial);
+			TestEqual(TEXT("Refreshed MID retains the original product material parent"), RefreshedMaterial->Parent.Get(), PathMaterial);
+			TestTrue(
+				TEXT("Refresh re-enables Mesh material sampling"),
+				FMath::IsNearlyEqual(
+					RefreshedMaterial->K2_GetScalarParameterValue(Settings->M6EnabledParameterName),
+					1.0f));
+		}
+	}
+
+	World->DestroyWorld(false);
 	return true;
 }
 

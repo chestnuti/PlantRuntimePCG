@@ -67,7 +67,7 @@ bool FAEM5RecoveryTest::RunTest(const FString& Parameters)
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAEM5GridVersionGateTest, "AdaptiveEnv.M5.Grid.VersionGateAndRevision", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
-/* Verifies M5 commits matching bundle inputs and rejects stale or mixed identities. */
+/* Verifies M5 commits matching configurations and rejects stale revisions. */
 bool FAEM5GridVersionGateTest::RunTest(const FString& Parameters)
 {
 	FAEHeatmapGridConfig Config;
@@ -75,7 +75,7 @@ bool FAEM5GridVersionGateTest::RunTest(const FString& Parameters)
 	Config.CellSizeCm = 100.0f;
 	FAEEcologicalResponseGrid Grid;
 	TestTrue(TEXT("M5 Grid initializes"), Grid.Initialize(Config));
-	FAEParameterBundleIdentity Identity{FGuid(0xAE000005, 0, 0, 1), TEXT("1.0.0"), FString::ChrN(64, TEXT('a'))};
+	constexpr uint32 ConfigRevision = 1;
 	FAEM5InputSnapshot Input;
 	Input.Coordinate = FIntPoint::ZeroValue;
 	Input.Exposure = 0.5;
@@ -83,14 +83,14 @@ bool FAEM5GridVersionGateTest::RunTest(const FString& Parameters)
 	Input.ExposureRevision = 1;
 	Input.ConstraintRevision = 1;
 	Input.SimulationStep = 1;
-	Input.BundleIdentity = Identity;
-	TestTrue(TEXT("Compatible input commits"), Grid.Update({Input}, 1.0, AdaptiveEnvM5Tests::MakeParameters(), Identity));
+	Input.ConfigRevision = ConfigRevision;
+	TestTrue(TEXT("Compatible input commits"), Grid.Update({Input}, 1.0, AdaptiveEnvM5Tests::MakeParameters(), ConfigRevision));
 	FAEEcologicalResponseSnapshot First;
 	TestTrue(TEXT("Committed M5 Cell is queryable"), Grid.GetCellSnapshot(FIntPoint::ZeroValue, First));
 	TestEqual(TEXT("First response revision is one"), Grid.GetResponseRevision(), static_cast<uint64>(1));
-	Input.BundleIdentity.ContentHash = FString::ChrN(64, TEXT('b'));
-	Grid.Update({Input}, 1.0, AdaptiveEnvM5Tests::MakeParameters(), Identity);
-	TestEqual(TEXT("Mixed bundle input is rejected"), Grid.GetRejectedInputCount(), static_cast<uint64>(1));
+	Input.ConfigRevision = ConfigRevision + 1;
+	Grid.Update({Input}, 1.0, AdaptiveEnvM5Tests::MakeParameters(), ConfigRevision);
+	TestEqual(TEXT("Stale configuration input is rejected"), Grid.GetRejectedInputCount(), static_cast<uint64>(1));
 	TestEqual(TEXT("Rejected input does not advance revision"), Grid.GetResponseRevision(), static_cast<uint64>(1));
 	return true;
 }
@@ -109,10 +109,7 @@ bool FAEM5StableRevisionPropagationTest::RunTest(const FString& Parameters)
 	FAEEcologicalResponseGrid Grid;
 	TestTrue(TEXT("M5 Grid initializes"), Grid.Initialize(Config));
 
-	const FAEParameterBundleIdentity Identity{
-		FGuid(0xAE000005, 0, 0, 2),
-		TEXT("1.0.0"),
-		FString::ChrN(64, TEXT('c'))};
+	constexpr uint32 ConfigRevision = 2;
 	FAEM5InputSnapshot Input;
 	Input.Coordinate = FIntPoint::ZeroValue;
 	Input.Exposure = 0.2;
@@ -120,8 +117,8 @@ bool FAEM5StableRevisionPropagationTest::RunTest(const FString& Parameters)
 	Input.ExposureRevision = 1;
 	Input.ConstraintRevision = 64;
 	Input.SimulationStep = 1;
-	Input.BundleIdentity = Identity;
-	TestTrue(TEXT("Initial compatible input commits"), Grid.Update({Input}, 0.0, AdaptiveEnvM5Tests::MakeParameters(), Identity));
+	Input.ConfigRevision = ConfigRevision;
+	TestTrue(TEXT("Initial compatible input commits"), Grid.Update({Input}, 0.0, AdaptiveEnvM5Tests::MakeParameters(), ConfigRevision));
 
 	FAEEcologicalResponseSnapshot First;
 	TestTrue(TEXT("Initial response is queryable"), Grid.GetCellSnapshot(FIntPoint::ZeroValue, First));
@@ -130,7 +127,7 @@ bool FAEM5StableRevisionPropagationTest::RunTest(const FString& Parameters)
 	// Advance only the accepted M3 source revision while the M5 scalar response remains unchanged.
 	Input.ExposureRevision = 2;
 	Input.SimulationStep = 2;
-	TestTrue(TEXT("Newer source revision commits"), Grid.Update({Input}, 0.0, AdaptiveEnvM5Tests::MakeParameters(), Identity));
+	TestTrue(TEXT("Newer source revision commits"), Grid.Update({Input}, 0.0, AdaptiveEnvM5Tests::MakeParameters(), ConfigRevision));
 	FAEEcologicalResponseSnapshot Unchanged;
 	Grid.GetCellSnapshot(FIntPoint::ZeroValue, Unchanged);
 	TestEqual(TEXT("Accepted source revision advances"), Unchanged.SourceExposureRevision, static_cast<int64>(2));
@@ -141,7 +138,7 @@ bool FAEM5StableRevisionPropagationTest::RunTest(const FString& Parameters)
 	Input.Exposure = 0.5;
 	Input.ExposureRevision = 3;
 	Input.SimulationStep = 3;
-	TestTrue(TEXT("Later Exposure change commits"), Grid.Update({Input}, 0.0, AdaptiveEnvM5Tests::MakeParameters(), Identity));
+	TestTrue(TEXT("Later Exposure change commits"), Grid.Update({Input}, 0.0, AdaptiveEnvM5Tests::MakeParameters(), ConfigRevision));
 	FAEEcologicalResponseSnapshot Changed;
 	Grid.GetCellSnapshot(FIntPoint::ZeroValue, Changed);
 	TestTrue(TEXT("Effective impact follows later Exposure"), FMath::IsNearlyEqual(Changed.EffectiveImpactRatio, 0.5f, 1.0e-6f));

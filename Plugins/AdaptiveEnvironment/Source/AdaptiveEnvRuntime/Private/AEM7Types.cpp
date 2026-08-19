@@ -78,3 +78,31 @@ bool FAEM7LifecycleModel::ResolveVisibility(
 	}
 	return ClampedHealth >= ReappearanceThreshold;
 }
+
+/* Advance the visual retirement envelope independently from simulation-hour health rates. */
+float FAEM7LifecycleModel::ResolveDeathFadeRatio(
+	const float CurrentFadeRatio,
+	const bool bDead,
+	const float DeltaSeconds,
+	const float FadeDurationSeconds)
+{
+	const float Current = FMath::Clamp(CurrentFadeRatio, 0.0f, 1.0f);
+	if (!FMath::IsFinite(DeltaSeconds) || !FMath::IsFinite(FadeDurationSeconds)
+		|| DeltaSeconds <= 0.0f || FadeDurationSeconds <= UE_KINDA_SMALL_NUMBER)
+	{
+		return bDead ? 1.0f : 0.0f;
+	}
+	const float DeltaRatio = DeltaSeconds / FadeDurationSeconds;
+	return FMath::Clamp(Current + (bDead ? DeltaRatio : -DeltaRatio), 0.0f, 1.0f);
+}
+
+/* Resolve visual residency without changing ecological eligibility or lifecycle state. */
+bool FAEM7LifecycleModel::ResolveRenderResidence(
+	const bool bStructurallyEligible,
+	const bool bHealthAllowsResidence,
+	const bool bDead,
+	const bool bFadeCompletionRendered)
+{
+	return bStructurallyEligible
+		&& (bHealthAllowsResidence || (bDead && !bFadeCompletionRendered));
+}

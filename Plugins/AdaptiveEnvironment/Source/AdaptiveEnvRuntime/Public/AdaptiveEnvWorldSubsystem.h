@@ -6,6 +6,7 @@
 #include "AEEcologicalResponseGrid.h"
 #include "AEHeatmapGrid.h"
 #include "AEPathHeatmapGrid.h"
+#include "AEActiveEnvironmentConfig.h"
 #include "AEM4Types.h"
 #include "AEM7Types.h"
 #include "AEM8Types.h"
@@ -17,9 +18,10 @@ class UAEHeatmapRendererComponent;
 class UAELSystemPlantComponent;
 class UAERepresentativePlantManagerComponent;
 class UAEMoistureSourceComponent;
+class UAEMoistureTextureAsset;
 class UAEPathHeatmapRendererComponent;
 class UAEVegetationDistributionComponent;
-class UAEPublishedParameterBundleAsset;
+class UAEAdaptiveEnvironmentProfile;
 class AActor;
 
 UCLASS()
@@ -46,6 +48,14 @@ public:
 	/* Returns the number of render ticks observed by this subsystem. */
 	UFUNCTION(BlueprintPure, Category = "Adaptive Environment")
 	int64 GetTickCount() const { return TickCount; }
+
+	/* Pauses the ordered runtime pipeline for replay observation without pausing the World. */
+	UFUNCTION(BlueprintCallable, Category = "Adaptive Environment|Runtime")
+	void SetObservationPaused(bool bPaused);
+
+	/* Returns whether replay observation currently freezes the ordered runtime pipeline. */
+	UFUNCTION(BlueprintPure, Category = "Adaptive Environment|Runtime")
+	bool IsObservationPaused() const { return bObservationPaused; }
 
 	/* Returns elapsed fixed-step behaviour time in seconds. */
 	UFUNCTION(BlueprintPure, Category = "Adaptive Environment|Behaviour")
@@ -152,9 +162,18 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Adaptive Environment|M5")
 	bool IsM5Enabled() const { return bM5Enabled; }
 
-	/* Validates and atomically applies one complete M3/M4/M5 published parameter bundle. */
-	UFUNCTION(BlueprintCallable, Category = "Adaptive Environment|Parameters")
-	bool ApplyParameterBundle(UAEPublishedParameterBundleAsset* Bundle, FString& OutError);
+	/* Validates and atomically applies one complete M3/M4/M5 product profile. */
+	UFUNCTION(BlueprintCallable, Category = "Adaptive Environment|Configuration")
+	bool ApplyEnvironmentProfile(UAEAdaptiveEnvironmentProfile* Profile, FString& OutError);
+
+	UFUNCTION(BlueprintPure, Category = "Adaptive Environment|Configuration")
+	FName GetActiveEnvironmentProfileId() const { return ActiveEnvironmentConfig.ProfileId; }
+
+	UFUNCTION(BlueprintPure, Category = "Adaptive Environment|Configuration")
+	int32 GetEnvironmentConfigVersion() const { return ActiveEnvironmentConfig.ConfigVersion; }
+
+	UFUNCTION(BlueprintPure, Category = "Adaptive Environment|Configuration")
+	int64 GetEnvironmentConfigRevision() const { return static_cast<int64>(ActiveEnvironmentConfig.RuntimeRevision); }
 
 	/* Reads one M3 Cell by integer XY coordinate. */
 	UFUNCTION(BlueprintPure, Category = "Adaptive Environment|M3")
@@ -255,7 +274,7 @@ private:
 	void UpdateM6VisualRenderers(float DeltaTime);
 	/* Queues one full M6 texture reconstruction for a renderer. */
 	void QueueFullM6VisualRebuild(UAEPathHeatmapRendererComponent& Renderer) const;
-	/* Rebuilds M3 once from all current raw Cell totals after a parameter-package switch. */
+	/* Rebuilds M3 once from all current raw Cell totals after a profile switch. */
 	void RebuildM3FromCurrentRawGrid();
 	/* Accumulates raw Cells changed since the previous completed debug refresh. */
 	void AccumulateDebugActiveCells();
@@ -274,6 +293,8 @@ private:
 	int64 TickCount = 0;
 	/* Controls whether the ordered runtime pipeline can tick. */
 	bool bRuntimeEnabled = false;
+	/* Freezes fixed-step and visual advancement while replay observation is active. */
+	bool bObservationPaused = false;
 	/* Owns raw two-dimensional behaviour aggregation. */
 	FAEHeatmapGrid BehaviourGrid;
 	/* Owns derived M3 Exposure state aligned with the raw Grid. */
@@ -284,11 +305,11 @@ private:
 	FAEEcologicalResponseGrid ResponseGrid;
 	/* Owns complete M6 path visual state aligned with M1-M5. */
 	FAEPathHeatmapGrid PathHeatmapGrid;
-	/* Stores the atomically committed bundle identity and grouped M3/M4 parameter values. */
-	FAEActiveParameterSnapshot ActiveParameters;
+	/* Stores the atomically committed product configuration for M3 through M5. */
+	FAEActiveEnvironmentConfig ActiveEnvironmentConfig;
 	/* Controls M3 updates independently from the valid M1 runtime pipeline. */
 	bool bM3Enabled = false;
-	/* Controls M4 decisions independently while sharing the active bundle snapshot. */
+	/* Controls M4 decisions while sharing the active product configuration. */
 	bool bM4Enabled = false;
 	/* Controls World-level M5 response updates. */
 	bool bM5Enabled = false;
@@ -314,6 +335,8 @@ private:
 	double M6VisualAccumulator = 0.0;
 	/* Stores unique raw Cell indices changed since the previous debug refresh. */
 	TSet<int32> PendingDebugActiveCellIndices;
+	/* Stores the Cell selection used by the latest debug refresh. */
+	TSet<int32> LastRenderedDebugCellIndices;
 	/* Stores one fixed behaviour step duration in seconds. */
 	float BehaviourStepSeconds = 0.1f;
 	/* Caps fixed behaviour steps executed during one render frame. */
@@ -369,6 +392,9 @@ private:
 	TSet<int32> PendingM7BaselineCellIndices;
 	/* Stores active registered M4 moisture sources. */
 	TArray<TWeakObjectPtr<UAEMoistureSourceComponent>> RegisteredMoistureSources;
+	/* Keeps the atomically applied M4 moisture field reachable during runtime sampling. */
+	UPROPERTY(Transient)
+	TObjectPtr<UAEMoistureTextureAsset> ActiveMoistureTexture;
 	/* Stores M4 moisture sources awaiting safe registration. */
 	TArray<TWeakObjectPtr<UAEMoistureSourceComponent>> PendingMoistureSourceAdds;
 	/* Stores M4 moisture sources awaiting safe removal. */

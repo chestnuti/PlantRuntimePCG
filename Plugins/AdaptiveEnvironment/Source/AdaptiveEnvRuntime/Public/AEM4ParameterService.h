@@ -16,12 +16,10 @@ struct ADAPTIVEENVRUNTIME_API FAEM4ValidationResult
 	FString ToString() const;
 };
 
-/* Builds and evaluates the M4 constraint and effective-pressure contract. */
+/* Validates and evaluates the M4 constraint and effective-pressure contract. */
 class ADAPTIVEENVRUNTIME_API FAEM4ParameterService
 {
 public:
-	/* Maps one validated M4 block into grouped values and applies relationship gates. */
-	static FAEM4ValidationResult BuildParameterSet(const FAEParameterBlockView& Block, const FAEParameterBundleIdentity& BundleIdentity, FAEM4ParameterSet& OutParameters);
 	/* Validates numeric ranges, threshold ordering, hysteresis boundaries, and debounce. */
 	static FAEM4ValidationResult ValidateParameterSet(const FAEM4ParameterSet& Parameters);
 	/* Evaluates suitability, effective pressure, hysteresis, and debounce for one fixed step. */

@@ -3,9 +3,6 @@
 #include "CoreMinimal.h"
 #include "AEM3Types.h"
 
-struct FAEParameterBlockView;
-struct FAEParameterBundleIdentity;
-
 /* Describes one blocking M3 parameter-contract finding. */
 struct ADAPTIVEENVRUNTIME_API FAEM3ValidationIssue
 {
@@ -31,16 +28,10 @@ struct ADAPTIVEENVRUNTIME_API FAEM3ValidationResult
 	FString ToString() const;
 };
 
-/* Builds one immutable validated M3 parameter snapshot from an M2 package. */
+/* Validates the M3 runtime parameter contract. */
 class ADAPTIVEENVRUNTIME_API FAEM3ParameterService
 {
 public:
-	/* Maps one validated M3 block into grouped values and applies cross-parameter gates. */
-	static FAEM3ValidationResult BuildParameterSet(
-		const FAEParameterBlockView& Block,
-		const FAEParameterBundleIdentity& BundleIdentity,
-		FAEM3ParameterSet& OutParameterSet);
-
 	/* Validates numeric ranges and relationships on an already populated parameter set. */
 	static FAEM3ValidationResult ValidateParameterSet(const FAEM3ParameterSet& ParameterSet);
 };

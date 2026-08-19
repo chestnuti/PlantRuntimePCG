@@ -1,6 +1,7 @@
 #include "AEWorldConstraintProvider.h"
 
 #include "AEMoistureSourceComponent.h"
+#include "AEWorldScalarFieldAsset.h"
 #include "Components/PrimitiveComponent.h"
 #include "Engine/World.h"
 #include "LandscapeProxy.h"
@@ -92,6 +93,7 @@ bool FAEWorldConstraintProvider::SampleCell(
 	const FVector& XYCenter,
 	const float TraceHalfHeightCm,
 	const float DefaultMoistureRatio,
+	const UAEMoistureTextureAsset* MoistureTexture,
 	const TArray<TWeakObjectPtr<UAEMoistureSourceComponent>>& Sources,
 	FAEWorldConstraintObservation& OutObservation)
 {
@@ -125,7 +127,16 @@ bool FAEWorldConstraintProvider::SampleCell(
 			Selected = Source;
 		}
 	}
-	Candidate.MoistureRatio = FMath::Clamp(Selected ? Selected->MoistureRatio : DefaultMoistureRatio, 0.0f, 1.0f);
+	float MoistureRatio = DefaultMoistureRatio;
+	if (Selected != nullptr)
+	{
+		MoistureRatio = Selected->MoistureRatio;
+	}
+	else if (MoistureTexture != nullptr)
+	{
+		MoistureTexture->SampleValue(Candidate.WorldCenter, DefaultMoistureRatio, MoistureRatio);
+	}
+	Candidate.MoistureRatio = FMath::Clamp(MoistureRatio, 0.0f, 1.0f);
 	Candidate.bValid = FMath::IsFinite(Candidate.SlopeDegrees) && FMath::IsFinite(Candidate.MoistureRatio);
 	if (!Candidate.bValid)
 	{

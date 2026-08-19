@@ -2,238 +2,115 @@
 
 #if WITH_DEV_AUTOMATION_TESTS
 
-#include "AEParameterBundleService.h"
-#include "AEParameterBundleFactory.h"
-#include "AEPublishedParameterBundleAsset.h"
+#include "AEAdaptiveEnvironmentProfile.h"
+#include "AEActiveEnvironmentConfig.h"
+#include "AEM2ConfigService.h"
+#include "AEPlantBiomeMapAsset.h"
 #include "AdaptiveEnvWorldSubsystem.h"
+#include "AdaptiveEnvSettings.h"
+#include "AEWorldScalarFieldAsset.h"
 #include "Engine/World.h"
-#include "Misc/FileHelper.h"
-#include "Misc/Paths.h"
+#include "UObject/UnrealType.h"
 
-namespace AdaptiveEnvM2Tests
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAEM2DefaultProfileTest, "AdaptiveEnv.M2.Profile.DefaultMapping", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FAEM2DefaultProfileTest::RunTest(const FString& Parameters)
 {
-	/* Adds one deterministic test-only parameter without claiming literature provenance. */
-	void AddParameter(FAEParameterBlock& Block, const TCHAR* Name, const TCHAR* Unit, const double Value, const uint32 Id)
-	{
-		FAEPublishedParameter& Parameter = Block.Parameters.AddDefaulted_GetRef();
-		Parameter.ParameterId = FGuid(0xAE000002, static_cast<int32>(Id), 0, 1);
-		Parameter.Name = FName(Name);
-		Parameter.Unit = Unit;
-		Parameter.EvidenceBasedValue = Value;
-		Parameter.EffectiveValue = Value;
-		Parameter.PlausibleMinimum = FMath::Min(0.0, Value);
-		Parameter.PlausibleMaximum = FMath::Max(1.0, Value);
-		Parameter.ParameterVersion = TEXT("1.0.0");
-		Parameter.OriginLayer = EAEParameterOriginLayer::ExperimentOverride;
-	}
-
-	/* Creates one valid exact M3 block in canonical parameter-name order. */
-	FAEParameterBlock MakeM3Block()
-	{
-		FAEParameterBlock Block;
-		Block.BlockId = FGuid(0xAE000002, 3, 0, 1);
-		Block.ModelContract = FAEParameterBundleService::M3ModelContract();
-		Block.BlockVersion = TEXT("1.0.0");
-		uint32 Id = 1;
-		AddParameter(Block, TEXT("ExposureCollectEventReferenceCount"), TEXT("count"), 1.0, Id++);
-		AddParameter(Block, TEXT("ExposureCollectEventWeight"), TEXT("ratio"), 1.0 / 6.0, Id++);
-		AddParameter(Block, TEXT("ExposureCombatEventReferenceCount"), TEXT("count"), 1.0, Id++);
-		AddParameter(Block, TEXT("ExposureCombatEventWeight"), TEXT("ratio"), 1.0 / 6.0, Id++);
-		AddParameter(Block, TEXT("ExposureDwellReferenceSeconds"), TEXT("s"), 1.0, Id++);
-		AddParameter(Block, TEXT("ExposureDwellWeight"), TEXT("ratio"), 1.0 / 6.0, Id++);
-		AddParameter(Block, TEXT("ExposureHalfLifeSimulationHours"), TEXT("h"), 1.0, Id++);
-		AddParameter(Block, TEXT("ExposureMaximum"), TEXT("ratio"), 1.0, Id++);
-		AddParameter(Block, TEXT("ExposurePassReferenceCount"), TEXT("count"), 1.0, Id++);
-		AddParameter(Block, TEXT("ExposurePassWeight"), TEXT("ratio"), 1.0 / 6.0, Id++);
-		AddParameter(Block, TEXT("ExposureSprintDistanceReferenceMeters"), TEXT("m"), 1.0, Id++);
-		AddParameter(Block, TEXT("ExposureSprintWeight"), TEXT("ratio"), 1.0 / 6.0, Id++);
-		AddParameter(Block, TEXT("ExposureTravelDistanceReferenceMeters"), TEXT("m"), 1.0, Id++);
-		AddParameter(Block, TEXT("ExposureTravelDistanceWeight"), TEXT("ratio"), 1.0 / 6.0, Id++);
-		FString Error;
-		Block.BlockHash = FAEParameterBundleService::ComputeBlockHash(Block, Error);
-		return Block;
-	}
-
-	/* Creates one valid exact M4 block in canonical parameter-name order. */
-	FAEParameterBlock MakeM4Block()
-	{
-		FAEParameterBlock Block;
-		Block.BlockId = FGuid(0xAE000002, 4, 0, 1);
-		Block.ModelContract = FAEParameterBundleService::M4ModelContract();
-		Block.BlockVersion = TEXT("1.0.0");
-		uint32 Id = 101;
-		AddParameter(Block, TEXT("ActiveThreshold"), TEXT("ratio"), 0.25, Id++);
-		AddParameter(Block, TEXT("HysteresisWidth"), TEXT("ratio"), 0.1, Id++);
-		AddParameter(Block, TEXT("MoistureOptimalMaximumRatio"), TEXT("ratio"), 0.7, Id++);
-		AddParameter(Block, TEXT("MoistureOptimalMinimumRatio"), TEXT("ratio"), 0.3, Id++);
-		AddParameter(Block, TEXT("MoistureToleranceWidthRatio"), TEXT("ratio"), 0.2, Id++);
-		AddParameter(Block, TEXT("OverusedThreshold"), TEXT("ratio"), 0.75, Id++);
-		AddParameter(Block, TEXT("SlopeFullySuitableDegrees"), TEXT("degree"), 10.0, Id++);
-		AddParameter(Block, TEXT("SlopeUnsuitableDegrees"), TEXT("degree"), 45.0, Id++);
-		AddParameter(Block, TEXT("TransitionDebounceSimulationHours"), TEXT("h"), 0.5, Id++);
-		FString Error;
-		Block.BlockHash = FAEParameterBundleService::ComputeBlockHash(Block, Error);
-		return Block;
-	}
-
-	/* Creates one valid exact M5 block in canonical parameter-name order. */
-	FAEParameterBlock MakeM5Block()
-	{
-		FAEParameterBlock Block;
-		Block.BlockId = FGuid(0xAE000002, 5, 0, 1);
-		Block.ModelContract = FAEParameterBundleService::M5ModelContract();
-		Block.BlockVersion = TEXT("1.0.0");
-		uint32 Id = 201;
-		AddParameter(Block, TEXT("ConstraintSensitivity"), TEXT("ratio"), 0.5, Id++);
-		AddParameter(Block, TEXT("DamageActivationImpact"), TEXT("ratio"), 0.5, Id++);
-		AddParameter(Block, TEXT("DamageMaximumRatePerSimulationHour"), TEXT("ratio/h"), 0.2, Id++);
-		AddParameter(Block, TEXT("DamageSaturationImpact"), TEXT("ratio"), 0.8, Id++);
-		AddParameter(Block, TEXT("RecoveryActivationExposure"), TEXT("ratio"), 0.25, Id++);
-		AddParameter(Block, TEXT("RecoveryBaseRatePerSimulationHour"), TEXT("ratio/h"), 0.1, Id++);
-		AddParameter(Block, TEXT("RecoveryDelaySimulationHours"), TEXT("h"), 1.0, Id++);
-		FString Error;
-		Block.BlockHash = FAEParameterBundleService::ComputeBlockHash(Block, Error);
-		return Block;
-	}
-
-	/* Creates and seals one complete test-only three-block Published Parameter Bundle. */
-	UAEPublishedParameterBundleAsset* MakeBundle()
-	{
-		UAEPublishedParameterBundleAsset* Bundle = NewObject<UAEPublishedParameterBundleAsset>();
-		Bundle->BundleId = FGuid(0xAE000002, 0, 0, 1);
-		Bundle->SemanticVersion = TEXT("1.0.0");
-		Bundle->SourceAuditHash = FString::ChrN(64, TEXT('a'));
-		Bundle->GeneratorVersion = TEXT("adaptive-env-m2-tests/1.0.0");
-		Bundle->Blocks = { MakeM3Block(), MakeM4Block(), MakeM5Block() };
-		FString Error;
-		Bundle->ContentHash = FAEParameterBundleService::ComputeContentHash(*Bundle, Error);
-		return Bundle;
-	}
-}
-
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAEBundleValidTest, "AdaptiveEnv.M2.Bundle.Valid", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
-
-/* Verifies one exact three-block, 30-record bundle passes every runtime gate. */
-bool FAEBundleValidTest::RunTest(const FString& Parameters)
-{
-	const UAEPublishedParameterBundleAsset* Bundle = AdaptiveEnvM2Tests::MakeBundle();
-	const FAEParameterBundleValidationResult Result = FAEParameterBundleService::ValidateBundle(*Bundle);
-	TestTrue(TEXT("Complete bundle validates"), Result.IsValid());
-	TestEqual(TEXT("Exactly three blocks"), Bundle->Blocks.Num(), 3);
-	TestEqual(TEXT("Exactly thirty parameters"), Bundle->Blocks[0].Parameters.Num() + Bundle->Blocks[1].Parameters.Num() + Bundle->Blocks[2].Parameters.Num(), 30);
+	const UAEAdaptiveEnvironmentProfile* Profile = NewObject<UAEAdaptiveEnvironmentProfile>();
+	FAEActiveEnvironmentConfig Config;
+	const FAEM2ValidationResult Result = FAEM2ConfigService::BuildActiveConfig(*Profile, 1, Config);
+	TestTrue(TEXT("Default product profile validates"), Result.IsValid());
+	TestEqual(TEXT("Profile identity maps"), Config.ProfileId, FName(TEXT("Default")));
+	TestEqual(TEXT("Runtime revision maps"), Config.RuntimeRevision, static_cast<uint32>(1));
+	TestTrue(TEXT("Named Pass channel maps"), FMath::IsNearlyEqual(Config.M3.Channel(EAEExposureChannel::Pass).Weight, 0.20));
+	TestTrue(TEXT("M4 terrain setting maps"), FMath::IsNearlyEqual(Config.M4.ConstraintResponse.SlopeUnsuitableDegrees, 45.0));
+	TestTrue(TEXT("M4 default moisture maps"), FMath::IsNearlyEqual(Config.DefaultMoistureRatio, 0.5));
+	TestTrue(TEXT("M5 damage setting maps"), FMath::IsNearlyEqual(Config.M5.Damage.MaximumRatePerSimulationHour, 0.20));
 	return true;
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAEBundleHeaderExactTest, "AdaptiveEnv.M2.Bundle.HeaderExact", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAEM2ConfiguredProfileLoadTest, "AdaptiveEnv.M2.Profile.ConfiguredAssetLoads", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
-/* Verifies fixed header values and canonical header field emission. */
-bool FAEBundleHeaderExactTest::RunTest(const FString& Parameters)
+bool FAEM2ConfiguredProfileLoadTest::RunTest(const FString& Parameters)
 {
-	UAEPublishedParameterBundleAsset* Bundle = AdaptiveEnvM2Tests::MakeBundle();
-	FString Json;
-	FString Error;
-	TestTrue(TEXT("Canonical JSON builds"), FAEParameterBundleService::BuildCanonicalBundleJson(*Bundle, true, Json, Error));
-	const TCHAR* OrderedFields[] = { TEXT("\"Format\""), TEXT("\"SchemaVersion\""), TEXT("\"BundleId\""), TEXT("\"SemanticVersion\""), TEXT("\"ParentContentHash\""), TEXT("\"SourceAuditHash\""), TEXT("\"GeneratorVersion\""), TEXT("\"Blocks\""), TEXT("\"ContentHash\"") };
-	int32 Previous = -1;
-	for (const TCHAR* Field : OrderedFields)
+	const UAdaptiveEnvSettings* Settings = GetDefault<UAdaptiveEnvSettings>();
+	UAEAdaptiveEnvironmentProfile* Profile = Settings->EnvironmentProfile.LoadSynchronous();
+	TestNotNull(TEXT("Configured product profile loads"), Profile);
+	if (Profile == nullptr) return false;
+	FAEActiveEnvironmentConfig Config;
+	const FAEM2ValidationResult Result = FAEM2ConfigService::BuildActiveConfig(*Profile, 1, Config);
+	TestTrue(TEXT("Configured product profile validates"), Result.IsValid());
+	TestEqual(TEXT("Configured profile uses current schema"), Profile->ConfigVersion, 2);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAEM2MoistureFieldValidationTest, "AdaptiveEnv.M2.Profile.MoistureFieldValidation", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FAEM2MoistureFieldValidationTest::RunTest(const FString& Parameters)
+{
+	UAEAdaptiveEnvironmentProfile* Profile = NewObject<UAEAdaptiveEnvironmentProfile>();
+	Profile->M4.MoistureTexture = NewObject<UAEMoistureTextureAsset>(Profile);
+	FAEActiveEnvironmentConfig Preserved;
+	Preserved.ProfileId = TEXT("Preserved");
+	Preserved.RuntimeRevision = 4;
+	const FAEM2ValidationResult Invalid = FAEM2ConfigService::BuildActiveConfig(*Profile, 5, Preserved);
+	TestFalse(TEXT("Unbaked moisture field rejects the complete profile"), Invalid.IsValid());
+	TestEqual(TEXT("Rejected field preserves active profile"), Preserved.ProfileId, FName(TEXT("Preserved")));
+	Profile->M4.MoistureTexture->BakedDimensions = FIntPoint(1, 1);
+	Profile->M4.MoistureTexture->BakedSamples = {32768};
+	FAEActiveEnvironmentConfig Valid;
+	TestTrue(TEXT("Valid baked moisture field commits"), FAEM2ConfigService::BuildActiveConfig(*Profile, 5, Valid).IsValid());
+	TestTrue(TEXT("Committed field identity maps"), Valid.MoistureTexture.Get() == Profile->M4.MoistureTexture);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAEDedicatedTextureInputTypesTest, "AdaptiveEnv.M2.Profile.DedicatedTextureInputTypes", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FAEDedicatedTextureInputTypesTest::RunTest(const FString& Parameters)
+{
+	const FObjectProperty* MoistureProperty = FindFProperty<FObjectProperty>(
+		FAEM4UserConfig::StaticStruct(),
+		GET_MEMBER_NAME_CHECKED(FAEM4UserConfig, MoistureTexture));
+	const FObjectProperty* BiomeProperty = FindFProperty<FObjectProperty>(
+		UAEPlantBiomeMapAsset::StaticClass(),
+		GET_MEMBER_NAME_CHECKED(UAEPlantBiomeMapAsset, BiomeTexture));
+	TestNotNull(TEXT("M4 exposes a dedicated moisture texture input"), MoistureProperty);
+	TestNotNull(TEXT("M7 exposes a dedicated biome texture input"), BiomeProperty);
+	if (MoistureProperty != nullptr)
 	{
-		const int32 Index = Json.Find(Field);
-		TestTrue(FString::Printf(TEXT("Header field %s is ordered"), Field), Index > Previous);
-		Previous = Index;
+		TestEqual(TEXT("M4 accepts only moisture texture assets"), MoistureProperty->PropertyClass.Get(), UAEMoistureTextureAsset::StaticClass());
 	}
-	Bundle->Format = TEXT("Wrong.Format");
-	TestFalse(TEXT("Wrong format fails closed"), FAEParameterBundleService::ValidateBundle(*Bundle).IsValid());
-	return true;
-}
-
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAEBundleInvalidHashTest, "AdaptiveEnv.M2.Bundle.InvalidSchemaAndHash", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
-
-/* Verifies unsupported schemas and nested content tampering fail closed. */
-bool FAEBundleInvalidHashTest::RunTest(const FString& Parameters)
-{
-	UAEPublishedParameterBundleAsset* Bundle = AdaptiveEnvM2Tests::MakeBundle();
-	Bundle->SchemaVersion = 3;
-	TestFalse(TEXT("Unsupported schema fails"), FAEParameterBundleService::ValidateBundle(*Bundle).IsValid());
-	Bundle = AdaptiveEnvM2Tests::MakeBundle();
-	Bundle->Blocks[0].Parameters[0].EffectiveValue += 0.01;
-	TestFalse(TEXT("Tampered block fails"), FAEParameterBundleService::ValidateBundle(*Bundle).IsValid());
-	return true;
-}
-
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAEBundleDuplicateUnitTest, "AdaptiveEnv.M2.Bundle.DuplicateAndUnits", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
-
-/* Verifies duplicate identities and exact-unit drift are rejected. */
-bool FAEBundleDuplicateUnitTest::RunTest(const FString& Parameters)
-{
-	UAEPublishedParameterBundleAsset* Bundle = AdaptiveEnvM2Tests::MakeBundle();
-	Bundle->Blocks[0].Parameters[1].ParameterId = Bundle->Blocks[0].Parameters[0].ParameterId;
-	TestFalse(TEXT("Duplicate ParameterId fails"), FAEParameterBundleService::ValidateBundle(*Bundle).IsValid());
-	Bundle = AdaptiveEnvM2Tests::MakeBundle();
-	Bundle->Blocks[1].Parameters[7].Unit = TEXT("radian");
-	TestFalse(TEXT("Changed unit fails"), FAEParameterBundleService::ValidateBundle(*Bundle).IsValid());
-	return true;
-}
-
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAEBundleGoldenImportTest, "AdaptiveEnv.M2.Import.GoldenBundle", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
-
-/* Verifies canonical JSON imports into a field-identical bundle asset. */
-bool FAEBundleGoldenImportTest::RunTest(const FString& Parameters)
-{
-	UAEPublishedParameterBundleAsset* Source = AdaptiveEnvM2Tests::MakeBundle();
-	FString Json;
-	FString Error;
-	TestTrue(TEXT("Canonical source JSON builds"), FAEParameterBundleService::BuildCanonicalBundleJson(*Source, true, Json, Error));
-	const FString Filename = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("Automation"), TEXT("GoldenBundle.aeparams.json"));
-	TestTrue(TEXT("Golden JSON writes"), FFileHelper::SaveStringToFile(Json, *Filename, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM));
-
-	UAEParameterBundleFactory* Factory = NewObject<UAEParameterBundleFactory>();
-	bool bCanceled = false;
-	UAEPublishedParameterBundleAsset* Imported = Cast<UAEPublishedParameterBundleAsset>(Factory->FactoryCreateFile(
-		UAEPublishedParameterBundleAsset::StaticClass(), GetTransientPackage(), TEXT("AE_GoldenBundle"), RF_Transient, Filename, nullptr, GWarn, bCanceled));
-	TestNotNull(TEXT("Golden bundle imports"), Imported);
-	if (Imported != nullptr)
+	if (BiomeProperty != nullptr)
 	{
-		TestEqual(TEXT("Imported content hash"), Imported->ContentHash, Source->ContentHash);
-		TestEqual(TEXT("Imported block count"), Imported->Blocks.Num(), 3);
-		TestEqual(TEXT("Imported record count"), Imported->Blocks[0].Parameters.Num() + Imported->Blocks[1].Parameters.Num() + Imported->Blocks[2].Parameters.Num(), 30);
+		TestEqual(TEXT("M7 accepts only biome texture assets"), BiomeProperty->PropertyClass.Get(), UAEBiomeTextureAsset::StaticClass());
 	}
-	IFileManager::Get().Delete(*Filename, false, true);
+	TestFalse(TEXT("Moisture and biome texture asset types are mutually exclusive"),
+		UAEMoistureTextureAsset::StaticClass()->IsChildOf(UAEBiomeTextureAsset::StaticClass())
+		|| UAEBiomeTextureAsset::StaticClass()->IsChildOf(UAEMoistureTextureAsset::StaticClass()));
 	return true;
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAEBundleAtomicReimportTest, "AdaptiveEnv.M2.Import.FailedReimportAtomic", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAEM2AtomicValidationTest, "AdaptiveEnv.M2.Profile.AtomicValidation", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
-/* Verifies failed reimport leaves every previously committed bundle field unchanged. */
-bool FAEBundleAtomicReimportTest::RunTest(const FString& Parameters)
+bool FAEM2AtomicValidationTest::RunTest(const FString& Parameters)
 {
-	UAEPublishedParameterBundleAsset* Source = AdaptiveEnvM2Tests::MakeBundle();
-	FString Json;
-	FString Error;
-	FAEParameterBundleService::BuildCanonicalBundleJson(*Source, true, Json, Error);
-	const FString Filename = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("Automation"), TEXT("AtomicBundle.aeparams.json"));
-	FFileHelper::SaveStringToFile(Json, *Filename, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM);
-	UAEParameterBundleFactory* Factory = NewObject<UAEParameterBundleFactory>();
-	bool bCanceled = false;
-	UAEPublishedParameterBundleAsset* Imported = Cast<UAEPublishedParameterBundleAsset>(Factory->FactoryCreateFile(
-		UAEPublishedParameterBundleAsset::StaticClass(), GetTransientPackage(), TEXT("AE_AtomicBundle"), RF_Transient, Filename, nullptr, GWarn, bCanceled));
-	TestNotNull(TEXT("Initial bundle imports"), Imported);
-	if (Imported != nullptr)
-	{
-		const FString OriginalHash = Imported->ContentHash;
-		FFileHelper::SaveStringToFile(TEXT("{\"Format\":\"tampered\"}"), *Filename, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM);
-		TestEqual(TEXT("Invalid reimport fails"), Factory->Reimport(Imported), EReimportResult::Failed);
-		TestEqual(TEXT("Failed reimport preserves content hash"), Imported->ContentHash, OriginalHash);
-	}
-	IFileManager::Get().Delete(*Filename, false, true);
+	UAEAdaptiveEnvironmentProfile* Profile = NewObject<UAEAdaptiveEnvironmentProfile>();
+	FAEActiveEnvironmentConfig Config;
+	Config.ProfileId = TEXT("Preserved");
+	Config.RuntimeRevision = 7;
+	Profile->M5.DamageSaturationImpact = Profile->M5.DamageActivationImpact;
+	const FAEM2ValidationResult Result = FAEM2ConfigService::BuildActiveConfig(*Profile, 8, Config);
+	TestFalse(TEXT("Invalid stage rejects complete profile"), Result.IsValid());
+	TestEqual(TEXT("Rejected candidate preserves identity"), Config.ProfileId, FName(TEXT("Preserved")));
+	TestEqual(TEXT("Rejected candidate preserves revision"), Config.RuntimeRevision, static_cast<uint32>(7));
 	return true;
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAEBundleWorldSwitchTest, "AdaptiveEnv.M3.Integration.BundleSwitch", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAEM2WorldProfileSwitchTest, "AdaptiveEnv.M2.Profile.WorldSwitch", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
-/* Verifies one World commits M3/M4/M5 together and preserves them after rejection. */
-bool FAEBundleWorldSwitchTest::RunTest(const FString& Parameters)
+bool FAEM2WorldProfileSwitchTest::RunTest(const FString& Parameters)
 {
-	const FName WorldName = MakeUniqueObjectName(GetTransientPackage(), UWorld::StaticClass(), TEXT("AE_BundleSwitchWorld"));
+	const FName WorldName = MakeUniqueObjectName(GetTransientPackage(), UWorld::StaticClass(), TEXT("AE_ProfileSwitchWorld"));
 	UWorld* World = UWorld::CreateWorld(EWorldType::Game, false, WorldName, GetTransientPackage(), true);
 	TestNotNull(TEXT("Temporary World"), World);
 	if (World == nullptr) return false;
@@ -242,17 +119,16 @@ bool FAEBundleWorldSwitchTest::RunTest(const FString& Parameters)
 	if (Subsystem != nullptr)
 	{
 		FString Error;
-		UAEPublishedParameterBundleAsset* Valid = AdaptiveEnvM2Tests::MakeBundle();
-		TestTrue(TEXT("Valid bundle commits"), Subsystem->ApplyParameterBundle(Valid, Error));
-		TestTrue(TEXT("M3 commits with bundle"), Subsystem->IsM3Enabled());
-		TestTrue(TEXT("M4 commits with bundle"), Subsystem->IsM4Enabled());
-		TestTrue(TEXT("M5 commits with bundle"), Subsystem->IsM5Enabled());
-		UAEPublishedParameterBundleAsset* Invalid = AdaptiveEnvM2Tests::MakeBundle();
-		Invalid->Blocks[0].Parameters[0].EffectiveValue += 0.1;
-		TestFalse(TEXT("Tampered candidate is rejected"), Subsystem->ApplyParameterBundle(Invalid, Error));
-		TestTrue(TEXT("Rejected candidate preserves M3"), Subsystem->IsM3Enabled());
-		TestTrue(TEXT("Rejected candidate preserves M4"), Subsystem->IsM4Enabled());
-		TestTrue(TEXT("Rejected candidate preserves M5"), Subsystem->IsM5Enabled());
+		UAEAdaptiveEnvironmentProfile* Valid = NewObject<UAEAdaptiveEnvironmentProfile>();
+		TestTrue(TEXT("Valid profile commits"), Subsystem->ApplyEnvironmentProfile(Valid, Error));
+		TestTrue(TEXT("M3 commits with profile"), Subsystem->IsM3Enabled());
+		TestTrue(TEXT("M4 commits with profile"), Subsystem->IsM4Enabled());
+		TestTrue(TEXT("M5 commits with profile"), Subsystem->IsM5Enabled());
+		const int64 CommittedRevision = Subsystem->GetEnvironmentConfigRevision();
+		UAEAdaptiveEnvironmentProfile* Invalid = NewObject<UAEAdaptiveEnvironmentProfile>();
+		Invalid->M3.Pass.Weight = 0.5;
+		TestFalse(TEXT("Invalid profile is rejected"), Subsystem->ApplyEnvironmentProfile(Invalid, Error));
+		TestEqual(TEXT("Rejected profile preserves revision"), Subsystem->GetEnvironmentConfigRevision(), CommittedRevision);
 	}
 	World->DestroyWorld(false);
 	return true;

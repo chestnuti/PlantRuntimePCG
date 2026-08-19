@@ -56,6 +56,7 @@ public:
 		const TArray<int32>& M5DirtyCellIndices,
 		const TArray<int32>& DistributionDirtyCellIndices,
 		double DeltaSimulationHours,
+		float DeltaVisualSeconds,
 		int64 SimulationStep);
 	/* Applies queued HISM changes within one frame budget. */
 	void ApplyVisualBudget(int32 MaximumUpdates);
@@ -81,8 +82,16 @@ private:
 		TArray<FAEPlantInstanceSnapshot> Snapshots;
 		/* Marks candidates that have consumed their first effective M4/M5 input or intact baseline. */
 		TBitArray<> InitializedHealth;
+		/* Confirms that a fully masked death value reached the M7 render adapter before removal. */
+		TBitArray<> RenderedDeathFadeCompletion;
 		/* Groups candidate indices by shared row-major Cell index. */
 		TArray<TArray<int32>> CandidateIndicesByCell;
+		/* Caches one biome density weight per shared Grid Cell. */
+		TArray<float> BiomeWeightsByCell;
+		/* Stores the biome-map revision represented by BiomeWeightsByCell. */
+		int32 BiomeCacheRevision = 0;
+		/* Stores the species and LUT revision represented by current suitability output. */
+		int32 SuitabilityModelRevision = 0;
 		/* Tracks Cells whose health has not reached its current target. */
 		TSet<int32> ActiveTransitionCells;
 		/* Tracks Cells whose distribution inputs require reevaluation. */
@@ -93,6 +102,8 @@ private:
 
 	/* Builds one stable species pool and HISM owner. */
 	bool BuildSpeciesRuntime(UAEPlantSpeciesProfile& Profile, FSpeciesRuntime& OutRuntime, int32 SpeciesIndex);
+	/* Rebuilds one species' biome weights once per occupied shared Grid Cell. */
+	void RebuildBiomeWeightCache(const UAEPlantSpeciesProfile& Profile, FSpeciesRuntime& Runtime);
 	/* Destroys only dynamically owned HISM components. */
 	void DestroyOwnedInstances();
 	/* Maps one shared Cell coordinate to row-major storage. */

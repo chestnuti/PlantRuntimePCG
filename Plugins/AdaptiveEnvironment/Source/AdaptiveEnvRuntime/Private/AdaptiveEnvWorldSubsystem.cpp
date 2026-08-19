@@ -9,11 +9,8 @@
 #include "AEM8Types.h"
 #include "AEMoistureSourceComponent.h"
 #include "AEWorldConstraintProvider.h"
-#include "AEParameterBundleService.h"
-#include "AEM3ParameterService.h"
-#include "AEM4ParameterService.h"
-#include "AEM5ParameterService.h"
-#include "AEPublishedParameterBundleAsset.h"
+#include "AEAdaptiveEnvironmentProfile.h"
+#include "AEM2ConfigService.h"
 #include "AdaptiveEnvGameplayTags.h"
 #include "AdaptiveEnvLog.h"
 #include "AdaptiveEnvSettings.h"
@@ -29,6 +26,8 @@ void UAEAdaptiveEnvWorldSubsystem::Initialize(FSubsystemCollectionBase& Collecti
 	InstanceId = FGuid::NewGuid();
 	TickCount = 0;
 	M8UpdateCursor = 0;
+	bObservationPaused = false;
+	LastRenderedDebugCellIndices.Reset();
 	const UAdaptiveEnvSettings* Settings = GetDefault<UAdaptiveEnvSettings>();
 	bRuntimeEnabled = Settings->bEnableRuntime;
 	BehaviourStepSeconds = 1.0f / FMath::Max(Settings->BehaviourSampleRateHz, 1.0f);
@@ -71,35 +70,27 @@ void UAEAdaptiveEnvWorldSubsystem::Initialize(FSubsystemCollectionBase& Collecti
 	M6Parameters.FadeRatePerSimulationHour = Settings->M6FadeRatePerSimulationHour;
 	M6Parameters.DirtyIntensityEpsilon = Settings->M6DirtyIntensityEpsilon;
 
-	// Load one atomic M3/M4/M5 bundle without disabling the validated M1 pipeline when absent.
+	// Load one atomic M3/M4/M5 profile without disabling the valid M1 pipeline when absent.
 	bM3Enabled = false;
 	bM4Enabled = false;
 	bM5Enabled = false;
 	bM6Enabled = false;
 	bM7Enabled = false;
 	bM8Enabled = bRuntimeEnabled && Settings->bEnableM8;
-	if (bRuntimeEnabled && (Settings->bEnableM3 || Settings->bEnableM4 || Settings->bEnableM5))
+	if (bRuntimeEnabled && Settings->bEnableAdaptiveEcology)
 	{
-		UAEPublishedParameterBundleAsset* Bundle = Settings->ParameterBundle.LoadSynchronous();
-		if (Bundle != nullptr)
+		UAEAdaptiveEnvironmentProfile* Profile = Settings->EnvironmentProfile.LoadSynchronous();
+		if (Profile != nullptr)
 		{
 			FString Error;
-			if (!ApplyParameterBundle(Bundle, Error))
+			if (!ApplyEnvironmentProfile(Profile, Error))
 			{
-				UE_LOG(LogAdaptiveEnv, Error, TEXT("Parameter bundle initialization failed. World=%s Error=%s"), *GetNameSafe(GetWorld()), *Error);
-			}
-			else
-			{
-				bM3Enabled = Settings->bEnableM3;
-				bM4Enabled = Settings->bEnableM4;
-				bM5Enabled = Settings->bEnableM5;
-				bM6Enabled = Settings->bEnableM6 && bM5Enabled;
-				bM7Enabled = Settings->bEnableM7 && bM4Enabled && bM5Enabled;
+				UE_LOG(LogAdaptiveEnv, Error, TEXT("Environment profile initialization failed. World=%s Error=%s"), *GetNameSafe(GetWorld()), *Error);
 			}
 		}
 		else
 		{
-			UE_LOG(LogAdaptiveEnv, Log, TEXT("M3, M4, and M5 disabled because no parameter bundle is configured. World=%s"), *GetNameSafe(GetWorld()));
+			UE_LOG(LogAdaptiveEnv, Error, TEXT("Adaptive ecology disabled because no environment profile is configured. World=%s"), *GetNameSafe(GetWorld()));
 		}
 	}
 
@@ -125,6 +116,7 @@ void UAEAdaptiveEnvWorldSubsystem::Deinitialize()
 
 	// Stop ticking and clear registrations, queues, order guards, and grid data.
 	bRuntimeEnabled = false;
+	bObservationPaused = false;
 	RegisteredTrackers.Reset();
 	PendingTrackerAdds.Reset();
 	PendingTrackerRemoves.Reset();
@@ -163,11 +155,13 @@ void UAEAdaptiveEnvWorldSubsystem::Deinitialize()
 	M8PersistentPlantStates.Reset();
 	M8UpdateCursor = 0;
 	RegisteredMoistureSources.Reset();
+	ActiveMoistureTexture = nullptr;
 	PendingMoistureSourceAdds.Reset();
 	PendingMoistureSourceRemoves.Reset();
 	PendingSamples.Reset();
 	ProcessingSamples.Reset();
 	PendingDebugActiveCellIndices.Reset();
+	LastRenderedDebugCellIndices.Reset();
 	LastQueuedSequenceByAgent.Reset();
 	LastQueuedTimestampByAgent.Reset();
 	BehaviourGrid.Reset();
@@ -191,6 +185,12 @@ void UAEAdaptiveEnvWorldSubsystem::Tick(float DeltaTime)
 	// Apply deferred registrations before any service iterates active arrays.
 	++TickCount;
 	ApplyPendingRegistrations();
+	if (bObservationPaused)
+	{
+		// Keep transient debug drawing alive without advancing any simulation stage.
+		UpdateDebugRenderers(DeltaTime);
+		return;
+	}
 
 	// Convert render time into a bounded number of fixed behaviour steps.
 	const double SafeDeltaTime = FMath::Max(static_cast<double>(DeltaTime), 0.0);
@@ -236,6 +236,16 @@ void UAEAdaptiveEnvWorldSubsystem::Tick(float DeltaTime)
 bool UAEAdaptiveEnvWorldSubsystem::IsTickable() const
 {
 	return bRuntimeEnabled && IsInitialized();
+}
+
+// Freeze simulation while preserving the latest debug Cell selection for observation.
+void UAEAdaptiveEnvWorldSubsystem::SetObservationPaused(const bool bPaused)
+{
+	if (bPaused && !bObservationPaused && !PendingDebugActiveCellIndices.IsEmpty())
+	{
+		LastRenderedDebugCellIndices = PendingDebugActiveCellIndices;
+	}
+	bObservationPaused = bPaused;
 }
 
 // Register this tickable object with Unreal performance statistics.
@@ -720,6 +730,7 @@ void UAEAdaptiveEnvWorldSubsystem::ResetBehaviourGrid()
 	ProcessedBehaviourStepCount = 0;
 	SchedulerOverrunCount = 0;
 	PendingDebugActiveCellIndices.Reset();
+	LastRenderedDebugCellIndices.Reset();
 	// Reset each valid tracker so its next observation is treated as the first.
 	for (const TWeakObjectPtr<UAEBehaviourTrackerComponent>& Tracker : RegisteredTrackers)
 	{
@@ -730,53 +741,32 @@ void UAEAdaptiveEnvWorldSubsystem::ResetBehaviourGrid()
 	}
 }
 
-/* Validates and atomically applies one complete M3/M4 published parameter bundle. */
-bool UAEAdaptiveEnvWorldSubsystem::ApplyParameterBundle(UAEPublishedParameterBundleAsset* Bundle, FString& OutError)
+/* Validates and atomically applies one complete M3/M4/M5 product profile. */
+bool UAEAdaptiveEnvWorldSubsystem::ApplyEnvironmentProfile(UAEAdaptiveEnvironmentProfile* Profile, FString& OutError)
 {
 	check(IsInGameThread());
 	OutError.Reset();
-	if (!IsValid(Bundle))
+	if (!IsValid(Profile))
 	{
-		OutError = TEXT("Published parameter bundle is null or invalid.");
+		OutError = TEXT("Environment profile is null or invalid.");
 		return false;
 	}
 
-	// Validate the complete transport contract before constructing either model snapshot.
-	const FAEParameterBundleValidationResult BundleResult = FAEParameterBundleService::ValidateBundle(*Bundle);
-	if (!BundleResult.IsValid())
+	const uint32 NextRevision = ActiveEnvironmentConfig.RuntimeRevision == MAX_uint32
+		? 1
+		: ActiveEnvironmentConfig.RuntimeRevision + 1;
+	FAEActiveEnvironmentConfig Candidate;
+	const FAEM2ValidationResult Validation = FAEM2ConfigService::BuildActiveConfig(*Profile, NextRevision, Candidate);
+	if (!Validation.IsValid())
 	{
-		OutError = BundleResult.ToString();
+		OutError = Validation.ToString();
 		return false;
 	}
-	FAEParameterBlockView M3Block;
-	FAEParameterBlockView M4Block;
-	FAEParameterBlockView M5Block;
-	FAEParameterBundleService::FindBlock(*Bundle, FAEParameterBundleService::M3ModelContract(), M3Block);
-	FAEParameterBundleService::FindBlock(*Bundle, FAEParameterBundleService::M4ModelContract(), M4Block);
-	FAEParameterBundleService::FindBlock(*Bundle, FAEParameterBundleService::M5ModelContract(), M5Block);
-	FAEActiveParameterSnapshot Candidate;
-	Candidate.BundleIdentity = { Bundle->BundleId, Bundle->SemanticVersion, Bundle->ContentHash };
-	const FAEM3ValidationResult M3Result = FAEM3ParameterService::BuildParameterSet(M3Block, Candidate.BundleIdentity, Candidate.M3);
-	const FAEM4ValidationResult M4Result = FAEM4ParameterService::BuildParameterSet(M4Block, Candidate.BundleIdentity, Candidate.M4);
-	const FAEM5ValidationResult M5Result = FAEM5ParameterService::BuildParameterSet(M5Block, Candidate.BundleIdentity, Candidate.M5);
-	if (!M3Result.IsValid() || !M4Result.IsValid() || !M5Result.IsValid())
-	{
-		OutError = FString::Printf(TEXT("M3=[%s] M4=[%s] M5=[%s]"), *M3Result.ToString(), *M4Result.ToString(), *M5Result.ToString());
-		return false;
-	}
-	Candidate.M3BlockId = M3Block.Block->BlockId;
-	Candidate.M3BlockVersion = M3Block.Block->BlockVersion;
-	Candidate.M3BlockHash = M3Block.Block->BlockHash;
-	Candidate.M4BlockId = M4Block.Block->BlockId;
-	Candidate.M4BlockVersion = M4Block.Block->BlockVersion;
-	Candidate.M4BlockHash = M4Block.Block->BlockHash;
-	Candidate.M5BlockId = M5Block.Block->BlockId;
-	Candidate.M5BlockVersion = M5Block.Block->BlockVersion;
-	Candidate.M5BlockHash = M5Block.Block->BlockHash;
 
-	// Commit both model parameter sets together at the Game Thread boundary.
-	const FString PreviousHash = ActiveParameters.BundleIdentity.ContentHash;
-	ActiveParameters = MoveTemp(Candidate);
+	// Commit the complete candidate once at the Game Thread boundary.
+	const FName PreviousProfileId = ActiveEnvironmentConfig.ProfileId;
+	ActiveEnvironmentConfig = MoveTemp(Candidate);
+	ActiveMoistureTexture = ActiveEnvironmentConfig.MoistureTexture.Get();
 	bM3Enabled = true;
 	bM4Enabled = true;
 	bM5Enabled = true;
@@ -809,11 +799,12 @@ bool UAEAdaptiveEnvWorldSubsystem::ApplyParameterBundle(UAEPublishedParameterBun
 	UE_LOG(
 		LogAdaptiveEnv,
 		Log,
-		TEXT("Published parameter bundle applied. World=%s OldHash=%s NewVersion=%s NewHash=%s"),
+		TEXT("Environment profile applied. World=%s OldProfile=%s NewProfile=%s ConfigVersion=%d RuntimeRevision=%u"),
 		*GetNameSafe(GetWorld()),
-		*PreviousHash,
-		*ActiveParameters.BundleIdentity.SemanticVersion,
-		*ActiveParameters.BundleIdentity.ContentHash);
+		*PreviousProfileId.ToString(),
+		*ActiveEnvironmentConfig.ProfileId.ToString(),
+		ActiveEnvironmentConfig.ConfigVersion,
+		ActiveEnvironmentConfig.RuntimeRevision);
 	return true;
 }
 
@@ -991,7 +982,7 @@ float UAEAdaptiveEnvWorldSubsystem::GetM3DebugMaximumValue(const EAEHeatmapDebug
 	switch (Mode)
 	{
 	case EAEHeatmapDebugMode::CurrentExposure:
-		return static_cast<float>(ActiveParameters.M3.ExposureDynamics.Maximum);
+		return static_cast<float>(ActiveEnvironmentConfig.M3.ExposureDynamics.Maximum);
 	case EAEHeatmapDebugMode::PassExposure:
 	case EAEHeatmapDebugMode::TravelExposure:
 	case EAEHeatmapDebugMode::DwellExposure:
@@ -1200,7 +1191,7 @@ void UAEAdaptiveEnvWorldSubsystem::UpdateM3(const float StepSeconds)
 		SimulationTimeHours,
 		DeltaSimulationHours,
 		BehaviourGrid.GetBehaviourRevision(),
-		ActiveParameters.M3))
+		ActiveEnvironmentConfig.M3))
 	{
 		bM3Enabled = false;
 		UE_LOG(LogAdaptiveEnv, Error, TEXT("M3 update failed and was disabled. World=%s BehaviourRevision=%llu"), *GetNameSafe(GetWorld()), BehaviourGrid.GetBehaviourRevision());
@@ -1238,7 +1229,11 @@ void UAEAdaptiveEnvWorldSubsystem::UpdateM4(const float StepSeconds)
 		const FIntPoint Coordinate(Index % Dimensions.X, Index / Dimensions.X);
 		FAEWorldConstraintObservation Observation;
 		if (FAEWorldConstraintProvider::SampleCell(*World, Coordinate, ConstraintGrid.GetCellWorldCenter(Coordinate),
-			Settings->M4GroundTraceHalfHeightCm, Settings->M4DefaultMoistureRatio, RegisteredMoistureSources, Observation))
+			Settings->M4GroundTraceHalfHeightCm,
+			static_cast<float>(ActiveEnvironmentConfig.DefaultMoistureRatio),
+			ActiveMoistureTexture,
+			RegisteredMoistureSources,
+			Observation))
 		{
 			Observations.Add(MoveTemp(Observation));
 		}
@@ -1248,7 +1243,7 @@ void UAEAdaptiveEnvWorldSubsystem::UpdateM4(const float StepSeconds)
 		}
 	}
 	const double DeltaSimulationHours = static_cast<double>(StepSeconds) * SimulationHoursPerRealSecond;
-	if (!ConstraintGrid.Update(Observations, DeltaSimulationHours, static_cast<uint64>(ProcessedBehaviourStepCount + 1), ActiveParameters.M4))
+	if (!ConstraintGrid.Update(Observations, DeltaSimulationHours, static_cast<uint64>(ProcessedBehaviourStepCount + 1), ActiveEnvironmentConfig.M4))
 	{
 		bM4Enabled = false;
 		bM5Enabled = false;
@@ -1289,6 +1284,7 @@ void UAEAdaptiveEnvWorldSubsystem::UpdateM7(const float StepSeconds)
 				SharedM5Dirty,
 				DistributionDirty,
 				DeltaSimulationHours,
+				StepSeconds,
 				CurrentStep);
 		}
 	}
@@ -1376,16 +1372,16 @@ void UAEAdaptiveEnvWorldSubsystem::UpdateM5(const float StepSeconds)
 		FAEM5InputSnapshot& Input = Inputs.AddDefaulted_GetRef();
 		Input.Coordinate = Coordinate;
 		Input.Exposure = M3.CurrentExposure;
-		Input.ExposureMaximum = ActiveParameters.M3.ExposureDynamics.Maximum;
+		Input.ExposureMaximum = ActiveEnvironmentConfig.M3.ExposureDynamics.Maximum;
 		Input.ConstraintPressureRatio = M4.ConstraintPressureRatio;
 		Input.HabitatSuitabilityRatio = M4.HabitatSuitabilityRatio;
 		Input.ExposureRevision = static_cast<uint64>(FMath::Max(M3.ExposureRevision, static_cast<int64>(0)));
 		Input.ConstraintRevision = static_cast<uint64>(FMath::Max(M4.ConstraintRevision, static_cast<int64>(0)));
 		Input.SimulationStep = static_cast<uint64>(ProcessedBehaviourStepCount + 1);
-		Input.BundleIdentity = ActiveParameters.BundleIdentity;
+		Input.ConfigRevision = ActiveEnvironmentConfig.RuntimeRevision;
 	}
 	const double DeltaSimulationHours = static_cast<double>(StepSeconds) * SimulationHoursPerRealSecond;
-	if (!ResponseGrid.Update(Inputs, DeltaSimulationHours, ActiveParameters.M5, ActiveParameters.BundleIdentity))
+	if (!ResponseGrid.Update(Inputs, DeltaSimulationHours, ActiveEnvironmentConfig.M5, ActiveEnvironmentConfig.RuntimeRevision))
 	{
 		bM5Enabled = false;
 		bM6Enabled = false;
@@ -1540,7 +1536,7 @@ void UAEAdaptiveEnvWorldSubsystem::RebuildM3FromCurrentRawGrid()
 		SimulationTimeHours,
 		0.0,
 		BehaviourGrid.GetBehaviourRevision(),
-		ActiveParameters.M3))
+		ActiveEnvironmentConfig.M3))
 	{
 		bM3Enabled = false;
 	}
@@ -1563,7 +1559,10 @@ void UAEAdaptiveEnvWorldSubsystem::BuildDebugCellCoordinates(
 	TArray<FIntPoint>& OutCoordinates) const
 {
 	OutCoordinates.Reset();
-	if (MaxCells <= 0 || PendingDebugActiveCellIndices.IsEmpty())
+	const TSet<int32>& SourceCellIndices = bObservationPaused
+		? LastRenderedDebugCellIndices
+		: PendingDebugActiveCellIndices;
+	if (MaxCells <= 0 || SourceCellIndices.IsEmpty())
 	{
 		return;
 	}
@@ -1579,7 +1578,7 @@ void UAEAdaptiveEnvWorldSubsystem::BuildDebugCellCoordinates(
 	const int32 CellCount = Config.Dimensions.X * Config.Dimensions.Y;
 	const int32 NeighbourRadius = FMath::Max(GetDefault<UAdaptiveEnvSettings>()->DebugActiveNeighbourRadiusCells, 0);
 	TBitArray<> IncludedFlags(false, CellCount);
-	for (const int32 ActiveIndex : PendingDebugActiveCellIndices)
+	for (const int32 ActiveIndex : SourceCellIndices)
 	{
 		if (ActiveIndex < 0 || ActiveIndex >= CellCount)
 		{
@@ -1643,6 +1642,10 @@ void UAEAdaptiveEnvWorldSubsystem::UpdateDebugRenderers(const float DeltaTime)
 		return;
 	}
 	DebugAccumulator = FMath::Fmod(DebugAccumulator, RefreshStep);
+	if (!bObservationPaused && !PendingDebugActiveCellIndices.IsEmpty())
+	{
+		LastRenderedDebugCellIndices = PendingDebugActiveCellIndices;
+	}
 
 	// Render only through valid weak registrations.
 	for (const TWeakObjectPtr<UAEHeatmapRendererComponent>& Renderer : RegisteredRenderers)
@@ -1654,7 +1657,10 @@ void UAEAdaptiveEnvWorldSubsystem::UpdateDebugRenderers(const float DeltaTime)
 	}
 
 	// Start a fresh activity window only after every renderer consumed this refresh.
-	PendingDebugActiveCellIndices.Reset();
+	if (!bObservationPaused)
+	{
+		PendingDebugActiveCellIndices.Reset();
+	}
 }
 
 // Validate sample identity, finite values, ranges, and supported tags.

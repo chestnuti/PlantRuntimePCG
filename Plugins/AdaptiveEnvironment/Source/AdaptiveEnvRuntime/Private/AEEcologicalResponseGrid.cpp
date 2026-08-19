@@ -32,7 +32,7 @@ void FAEEcologicalResponseGrid::Reset()
 }
 
 /* Evaluate compatible immutable inputs and commit one revision per changed step. */
-bool FAEEcologicalResponseGrid::Update(const TArray<FAEM5InputSnapshot>& Inputs, const double DeltaSimulationHours, const FAEM5ParameterSet& Parameters, const FAEParameterBundleIdentity& ActiveBundleIdentity)
+bool FAEEcologicalResponseGrid::Update(const TArray<FAEM5InputSnapshot>& Inputs, const double DeltaSimulationHours, const FAEM5ParameterSet& Parameters, const uint32 ActiveConfigRevision)
 {
 	check(IsInGameThread());
 	if (Cells.IsEmpty() || !FMath::IsFinite(DeltaSimulationHours) || DeltaSimulationHours < 0.0) return false;
@@ -43,13 +43,13 @@ bool FAEEcologicalResponseGrid::Update(const TArray<FAEM5InputSnapshot>& Inputs,
 		int32 AI = INDEX_NONE, BI = INDEX_NONE; CellToIndex(A.Coordinate, AI); CellToIndex(B.Coordinate, BI); return AI < BI;
 	});
 
-	// Reject mixed bundle identities and regressions before mutating a Cell.
+	// Reject stale product configurations and regressions before mutating a Cell.
 	for (const FAEM5InputSnapshot& Input : Ordered)
 	{
 		int32 Index = INDEX_NONE;
 		if (!CellToIndex(Input.Coordinate, Index)
-			|| Input.BundleIdentity.BundleId != ActiveBundleIdentity.BundleId
-			|| Input.BundleIdentity.ContentHash != ActiveBundleIdentity.ContentHash
+			|| Input.ConfigRevision == 0
+			|| Input.ConfigRevision != ActiveConfigRevision
 			|| Input.ExposureMaximum <= 0.0)
 		{
 			++RejectedInputCount;

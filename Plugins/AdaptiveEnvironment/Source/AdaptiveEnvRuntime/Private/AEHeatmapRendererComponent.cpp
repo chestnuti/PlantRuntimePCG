@@ -2,6 +2,8 @@
 
 #include "AdaptiveEnvSettings.h"
 #include "AdaptiveEnvWorldSubsystem.h"
+#include "AEPlantBiomeMapAsset.h"
+#include "AEWorldScalarFieldAsset.h"
 #include "DrawDebugHelpers.h"
 #include "GameFramework/Actor.h"
 #include "GameFramework/PlayerController.h"
@@ -18,6 +20,7 @@ namespace AEHeatmapRendererPrivate
 		FVector2D FlowDirection = FVector2D::ZeroVector;
 		float Value = 0.0f;
 		FColor Color = FColor::White;
+		FString Label;
 	};
 }
 
@@ -73,7 +76,7 @@ void UAEHeatmapRendererComponent::RenderDebug(const UAEAdaptiveEnvWorldSubsystem
 	const float ModeMaximum = bUseModeDefaultRange
 		? (Mode == EAEHeatmapDebugMode::EnvironmentState ? 3.0f
 			: (IsM3Mode() ? Subsystem.GetM3DebugMaximumValue(Mode)
-				: ((IsM4Mode() || IsM5Mode()) ? 1.0f : 0.0f)))
+				: ((IsM4Mode() || IsM5Mode() || IsBiomeMode()) ? 1.0f : 0.0f)))
 		: 0.0f;
 	const float DisplayMaximum = FMath::Max(
 		ModeMaximum > 0.0f ? ModeMaximum : FixedMaximumValue,
@@ -81,7 +84,46 @@ void UAEHeatmapRendererComponent::RenderDebug(const UAEAdaptiveEnvWorldSubsystem
 	TArray<AEHeatmapRendererPrivate::FCellDrawData> DrawCells;
 
 	// Query the selected data layer and convert immutable snapshots into common draw data.
-	if (IsM5Mode())
+	if (IsBiomeMode())
+	{
+		PrepareBiomeDebugCache(Subsystem);
+		TArray<FAEEnvironmentConstraintSnapshot> Cells;
+		Subsystem.GetM4DebugCells(Origin, Settings->DebugDrawRadiusCm, Settings->MaxDebugCells, Cells);
+		DrawCells.Reserve(Cells.Num());
+		for (const FAEEnvironmentConstraintSnapshot& Cell : Cells)
+		{
+			float ScalarValue = 0.0f;
+			float SelectedWeight = 0.0f;
+			float DominantWeight = 0.0f;
+			FName DominantBiomeId = NAME_None;
+			if (!GetCachedBiomeScalarValue(Cell, ScalarValue)
+				|| !EvaluateBiomeDebugValue(
+					DebugBiomeMap,
+					DebugBiomeId,
+					ScalarValue,
+					SelectedWeight,
+					DominantBiomeId,
+					DominantWeight))
+			{
+				continue;
+			}
+
+			const float Value = Mode == EAEHeatmapDebugMode::BiomeWeight ? SelectedWeight : DominantWeight;
+			if (!FMath::IsFinite(Value) || Value < MinimumValue || DominantBiomeId.IsNone())
+			{
+				continue;
+			}
+			const FName ColorBiomeId = Mode == EAEHeatmapDebugMode::BiomeWeight ? DebugBiomeId : DominantBiomeId;
+			const FLinearColor BaseColor = GetBiomeDebugColor(ColorBiomeId);
+			AEHeatmapRendererPrivate::FCellDrawData& DrawCell = DrawCells.AddDefaulted_GetRef();
+			DrawCell.Coordinate = Cell.Coordinate;
+			DrawCell.WorldCenter = Cell.WorldCenter;
+			DrawCell.Value = Value;
+			DrawCell.Color = FLinearColor::LerpUsingHSV(FLinearColor::Black, BaseColor, Value).ToFColor(true);
+			DrawCell.Label = FString::Printf(TEXT("%s %.2f"), *ColorBiomeId.ToString(), Value);
+		}
+	}
+	else if (IsM5Mode())
 	{
 		TArray<FAEEcologicalResponseSnapshot> Cells;
 		Subsystem.GetM5DebugCells(Origin, Settings->DebugDrawRadiusCm, Settings->MaxDebugCells, Cells);
@@ -91,7 +133,13 @@ void UAEHeatmapRendererComponent::RenderDebug(const UAEAdaptiveEnvWorldSubsystem
 			const float Value = GetM5DisplayValue(Cell);
 			if (!FMath::IsFinite(Value) || Value < MinimumValue) continue;
 			const float Alpha = FMath::Clamp(Value / DisplayMaximum, 0.0f, 1.0f);
-			DrawCells.Add({Cell.Coordinate, Cell.WorldCenter, FVector2D::ZeroVector, Value, FLinearColor::LerpUsingHSV(FLinearColor::Blue, FLinearColor::Red, Alpha).ToFColor(true)});
+			const FLinearColor LowColor = Mode == EAEHeatmapDebugMode::Moisture
+				? FLinearColor(0.45f, 0.16f, 0.03f)
+				: FLinearColor::Blue;
+			const FLinearColor HighColor = Mode == EAEHeatmapDebugMode::Moisture
+				? FLinearColor(0.02f, 0.35f, 1.0f)
+				: FLinearColor::Red;
+			DrawCells.Add({Cell.Coordinate, Cell.WorldCenter, FVector2D::ZeroVector, Value, FLinearColor::LerpUsingHSV(LowColor, HighColor, Alpha).ToFColor(true)});
 		}
 	}
 	else if (IsM4Mode())
@@ -181,7 +229,8 @@ void UAEHeatmapRendererComponent::RenderDebug(const UAEAdaptiveEnvWorldSubsystem
 			const AEHeatmapRendererPrivate::FCellDrawData& Cell = DrawCells[LabelIndex];
 			const FVector TextLocation = Cell.WorldCenter + FVector(0.0, 0.0, DrawHeightCm + 10.0f);
 			const FVector TextOffset = TextBaseActor != nullptr ? TextLocation - TextBaseActor->GetActorLocation() : TextLocation;
-			DrawDebugString(GetWorld(), TextOffset, FString::Printf(TEXT("%.2f"), Cell.Value), TextBaseActor, Cell.Color, TextDurationSeconds, false);
+			const FString Text = Cell.Label.IsEmpty() ? FString::Printf(TEXT("%.2f"), Cell.Value) : Cell.Label;
+			DrawDebugString(GetWorld(), TextOffset, Text, TextBaseActor, Cell.Color, TextDurationSeconds, false);
 		}
 	}
 #else
@@ -200,13 +249,20 @@ bool UAEHeatmapRendererComponent::IsM3Mode() const
 /* Return whether the selected layer is derived from M4 state. */
 bool UAEHeatmapRendererComponent::IsM4Mode() const
 {
-	return Mode >= EAEHeatmapDebugMode::ConstraintPressure && Mode <= EAEHeatmapDebugMode::EnvironmentState;
+	return (Mode >= EAEHeatmapDebugMode::ConstraintPressure && Mode <= EAEHeatmapDebugMode::EnvironmentState)
+		|| Mode == EAEHeatmapDebugMode::Moisture;
 }
 
 /* Return whether the selected layer is derived from M5 state. */
 bool UAEHeatmapRendererComponent::IsM5Mode() const
 {
-	return Mode >= EAEHeatmapDebugMode::EffectiveImpact;
+	return Mode >= EAEHeatmapDebugMode::EffectiveImpact && Mode <= EAEHeatmapDebugMode::RecoveryRate;
+}
+
+/* Return whether the selected layer is derived from an authored M7 biome map. */
+bool UAEHeatmapRendererComponent::IsBiomeMode() const
+{
+	return Mode == EAEHeatmapDebugMode::BiomeWeight || Mode == EAEHeatmapDebugMode::BiomeClassification;
 }
 
 /* Map the current M1 debug mode to one raw behavior metric. */
@@ -261,8 +317,93 @@ float UAEHeatmapRendererComponent::GetM4DisplayValue(const FAEEnvironmentConstra
 	case EAEHeatmapDebugMode::ConstraintPressure: return Snapshot.ConstraintPressureRatio;
 	case EAEHeatmapDebugMode::HabitatSuitability: return Snapshot.HabitatSuitabilityRatio;
 	case EAEHeatmapDebugMode::EnvironmentState: return static_cast<float>(Snapshot.State);
+	case EAEHeatmapDebugMode::Moisture: return Snapshot.MoistureRatio;
 	default: return 0.0f;
 	}
+}
+
+/* Evaluate selected and dominant biome weights with authored-order tie breaking. */
+bool UAEHeatmapRendererComponent::EvaluateBiomeDebugValue(
+	const UAEPlantBiomeMapAsset* BiomeMap,
+	const FName SelectedBiomeId,
+	const float ScalarValue,
+	float& OutSelectedWeight,
+	FName& OutDominantBiomeId,
+	float& OutDominantWeight)
+{
+	OutSelectedWeight = 0.0f;
+	OutDominantBiomeId = NAME_None;
+	OutDominantWeight = 0.0f;
+	if (BiomeMap == nullptr || !FMath::IsFinite(ScalarValue))
+	{
+		return false;
+	}
+	for (const FAEBiomeRangeDefinition& Definition : BiomeMap->Biomes)
+	{
+		const float Weight = UAEPlantBiomeMapAsset::EvaluateBiomeWeight(ScalarValue, Definition);
+		if (Definition.BiomeId == SelectedBiomeId)
+		{
+			OutSelectedWeight = Weight;
+		}
+		if (Weight > OutDominantWeight)
+		{
+			OutDominantWeight = Weight;
+			OutDominantBiomeId = Definition.BiomeId;
+		}
+	}
+	return !BiomeMap->Biomes.IsEmpty();
+}
+
+/* Derive a stable vivid colour without storing an authored palette. */
+FLinearColor UAEHeatmapRendererComponent::GetBiomeDebugColor(const FName BiomeId)
+{
+	const uint32 Hash = GetTypeHash(BiomeId);
+	return FLinearColor::MakeFromHSV8(static_cast<uint8>(Hash & 0xff), 190, 255);
+}
+
+/* Reset scalar samples when the selected map or shared Grid contract changes. */
+void UAEHeatmapRendererComponent::PrepareBiomeDebugCache(const UAEAdaptiveEnvWorldSubsystem& Subsystem) const
+{
+	const FIntPoint Dimensions = Subsystem.GetGridDimensions();
+	const FBox2D Bounds = Subsystem.GetGridWorldBounds();
+	const int32 Revision = DebugBiomeMap != nullptr ? DebugBiomeMap->GetRuntimeRevision() : 0;
+	const bool bBoundsChanged = CachedBiomeGridBounds.bIsValid != Bounds.bIsValid
+		|| (Bounds.bIsValid && (!CachedBiomeGridBounds.Min.Equals(Bounds.Min) || !CachedBiomeGridBounds.Max.Equals(Bounds.Max)));
+	if (CachedBiomeMap.Get() != DebugBiomeMap || CachedBiomeRevision != Revision
+		|| CachedBiomeGridDimensions != Dimensions || bBoundsChanged)
+	{
+		BiomeScalarValuesByCell.Reset();
+		CachedBiomeMap = DebugBiomeMap;
+		CachedBiomeRevision = Revision;
+		CachedBiomeGridDimensions = Dimensions;
+		CachedBiomeGridBounds = Bounds;
+	}
+}
+
+/* Cache one scalar texture sample for each row-major shared Grid Cell. */
+bool UAEHeatmapRendererComponent::GetCachedBiomeScalarValue(
+	const FAEEnvironmentConstraintSnapshot& Snapshot,
+	float& OutValue) const
+{
+	if (DebugBiomeMap == nullptr || DebugBiomeMap->BiomeTexture == nullptr
+		|| CachedBiomeGridDimensions.X <= 0 || CachedBiomeGridDimensions.Y <= 0)
+	{
+		return false;
+	}
+	const int32 CellIndex = Snapshot.Coordinate.Y * CachedBiomeGridDimensions.X + Snapshot.Coordinate.X;
+	if (const float* CachedValue = BiomeScalarValuesByCell.Find(CellIndex))
+	{
+		OutValue = *CachedValue;
+		return true;
+	}
+	float ScalarValue = 0.0f;
+	if (!DebugBiomeMap->BiomeTexture->SampleValue(Snapshot.WorldCenter, 0.0f, ScalarValue))
+	{
+		return false;
+	}
+	BiomeScalarValuesByCell.Add(CellIndex, ScalarValue);
+	OutValue = ScalarValue;
+	return true;
 }
 
 /* Map the current M5 debug mode to one committed ecological response metric. */

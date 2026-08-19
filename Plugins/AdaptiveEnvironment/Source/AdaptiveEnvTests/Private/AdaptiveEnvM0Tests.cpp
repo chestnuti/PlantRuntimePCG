@@ -2,8 +2,7 @@
 
 #if WITH_DEV_AUTOMATION_TESTS
 
-#include "AEExperimentConfig.h"
-#include "AEPublishedParameterBundleAsset.h"
+#include "AEAdaptiveEnvironmentProfile.h"
 #include "AdaptiveEnvGameplayTags.h"
 #include "AdaptiveEnvSettings.h"
 #include "AdaptiveEnvWorldSubsystem.h"
@@ -44,13 +43,12 @@ bool FAESettingsDefaultsTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("Grid width is positive"), Settings->GridWidth > 0);
 	TestTrue(TEXT("Grid height is positive"), Settings->GridHeight > 0);
 	TestTrue(TEXT("Cell size is positive"), Settings->CellSizeCm > 0.0f);
-	TestTrue(TEXT("M3 enabled by default"), Settings->bEnableM3);
-	TestTrue(TEXT("M4 enabled by default"), Settings->bEnableM4);
+	TestTrue(TEXT("Adaptive ecology enabled by default"), Settings->bEnableAdaptiveEcology);
 	TestTrue(TEXT("M6 enabled by default"), Settings->bEnableM6);
 	TestTrue(
-		TEXT("Optional parameter bundle path is syntactically valid"),
-		Settings->ParameterBundle.IsNull() || Settings->ParameterBundle.ToSoftObjectPath().IsValid());
-	TestEqual(TEXT("Settings schema"), Settings->SettingsSchemaVersion, 11);
+		TEXT("Optional environment profile path is syntactically valid"),
+		Settings->EnvironmentProfile.IsNull() || Settings->EnvironmentProfile.ToSoftObjectPath().IsValid());
+	TestEqual(TEXT("Settings schema"), Settings->SettingsSchemaVersion, 13);
 	TestEqual(TEXT("M6 visible threshold"), Settings->M6VisibleDamageThresholdRatio, 0.15f);
 	TestEqual(TEXT("M6 full-path threshold"), Settings->M6FullPathDamageThresholdRatio, 0.65f);
 	TestEqual(TEXT("M6 formation rate"), Settings->M6FormationRatePerSimulationHour, 0.20f);
@@ -67,18 +65,15 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	"AdaptiveEnv.M0.DataAssetSchema",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
-// Verify default versions and deterministic values for runtime Data Assets.
+// Verify default product Profile identity, version, and tuning values.
 bool FAEDataAssetSchemaTest::RunTest(const FString& Parameters)
 {
-	// Create transient assets without loading project content.
-	const UAEPublishedParameterBundleAsset* ParametersAsset = NewObject<UAEPublishedParameterBundleAsset>();
-	const UAEExperimentConfig* Experiment = NewObject<UAEExperimentConfig>();
-
-	// Assert bundle format, schema, experiment schema, and deterministic seed defaults.
-	TestEqual(TEXT("Bundle format"), ParametersAsset->Format, FString(TEXT("AdaptiveEnv.ParameterBundle")));
-	TestEqual(TEXT("Bundle schema"), ParametersAsset->SchemaVersion, 2);
-	TestEqual(TEXT("Experiment schema"), Experiment->SchemaVersion, 2);
-	TestEqual(TEXT("Default seed"), Experiment->RandomSeed, 1337);
+	const UAEAdaptiveEnvironmentProfile* Profile = NewObject<UAEAdaptiveEnvironmentProfile>();
+	TestEqual(TEXT("Default Profile identity"), Profile->ProfileId, FName(TEXT("Default")));
+	TestEqual(TEXT("Profile contract version"), Profile->ConfigVersion, 2);
+	TestEqual(TEXT("Default M3 maximum"), Profile->M3.MaximumExposure, 1.0);
+	TestEqual(TEXT("Default M4 unsuitable slope"), Profile->M4.SlopeUnsuitableDegrees, 45.0);
+	TestEqual(TEXT("Default M5 Damage rate"), Profile->M5.DamageMaximumRatePerSimulationHour, 0.20);
 	return true;
 }
 
@@ -107,6 +102,18 @@ bool FAEWorldSubsystemSingletonTest::RunTest(const FString& Parameters)
 	TestNotNull(TEXT("Adaptive subsystem"), First);
 	TestTrue(TEXT("One subsystem per world"), First == Second);
 	TestTrue(TEXT("Instance ID is valid"), First != nullptr && First->GetInstanceId().IsValid());
+	TestFalse(TEXT("Observation pause is disabled initially"), First != nullptr && First->IsObservationPaused());
+	if (First != nullptr)
+	{
+		const double TimeBeforePause = First->GetBehaviourTimeSeconds();
+		First->SetObservationPaused(true);
+		TestTrue(TEXT("Observation pause can freeze the scheduler"), First->IsObservationPaused());
+		TestTrue(TEXT("Subsystem remains tickable for paused debug rendering"), First->IsTickable());
+		First->Tick(1.0f);
+		TestEqual(TEXT("Observation pause does not advance behaviour time"), First->GetBehaviourTimeSeconds(), TimeBeforePause);
+		First->SetObservationPaused(false);
+		TestFalse(TEXT("Observation pause can resume the scheduler"), First->IsObservationPaused());
+	}
 
 	// Destroy the transient World after all assertions complete.
 	TestWorld->DestroyWorld(false);

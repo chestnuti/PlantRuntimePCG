@@ -4,7 +4,6 @@
 
 #include "AEExposureGrid.h"
 #include "AEHeatmapGrid.h"
-#include "AEParameterBundleService.h"
 #include "AEM3ParameterService.h"
 #include "AdaptiveEnvGameplayTags.h"
 
@@ -22,43 +21,6 @@ namespace AdaptiveEnvM3Tests
 		Parameters.ExposureDynamics.Maximum = 1.0;
 		Parameters.ExposureDynamics.HalfLifeSimulationHours = 1.0;
 		return Parameters;
-	}
-
-	/* Creates one canonical transient block containing the exact 14-parameter M3 contract. */
-	FAEParameterBlock MakeValidBlock()
-	{
-		FAEParameterBlock Block;
-		Block.BlockId = FGuid(0xAE000003, 0, 0, 100);
-		Block.ModelContract = FAEParameterBundleService::M3ModelContract();
-		Block.BlockVersion = TEXT("1.0.0");
-		auto Add = [&Block](const TCHAR* Name, const TCHAR* Unit, const double Value, const uint32 Id)
-		{
-			FAEPublishedParameter& Parameter = Block.Parameters.AddDefaulted_GetRef();
-			Parameter.ParameterId = FGuid(0xAE000003, 0, 0, Id);
-			Parameter.Name = FName(Name);
-			Parameter.Unit = Unit;
-			Parameter.ParameterVersion = TEXT("1.0.0");
-			Parameter.EvidenceBasedValue = Value;
-			Parameter.EffectiveValue = Value;
-			Parameter.PlausibleMinimum = FMath::Min(Value, 0.0);
-			Parameter.PlausibleMaximum = FMath::Max(Value, 1.0);
-		};
-		uint32 Id = 1;
-		Add(TEXT("ExposureCollectEventReferenceCount"), TEXT("count"), 1.0, Id++);
-		Add(TEXT("ExposureCollectEventWeight"), TEXT("ratio"), 1.0 / 6.0, Id++);
-		Add(TEXT("ExposureCombatEventReferenceCount"), TEXT("count"), 1.0, Id++);
-		Add(TEXT("ExposureCombatEventWeight"), TEXT("ratio"), 1.0 / 6.0, Id++);
-		Add(TEXT("ExposureDwellReferenceSeconds"), TEXT("s"), 1.0, Id++);
-		Add(TEXT("ExposureDwellWeight"), TEXT("ratio"), 1.0 / 6.0, Id++);
-		Add(TEXT("ExposureHalfLifeSimulationHours"), TEXT("h"), 1.0, Id++);
-		Add(TEXT("ExposureMaximum"), TEXT("ratio"), 1.0, Id++);
-		Add(TEXT("ExposurePassReferenceCount"), TEXT("count"), 1.0, Id++);
-		Add(TEXT("ExposurePassWeight"), TEXT("ratio"), 1.0 / 6.0, Id++);
-		Add(TEXT("ExposureSprintDistanceReferenceMeters"), TEXT("m"), 1.0, Id++);
-		Add(TEXT("ExposureSprintWeight"), TEXT("ratio"), 1.0 / 6.0, Id++);
-		Add(TEXT("ExposureTravelDistanceReferenceMeters"), TEXT("m"), 1.0, Id++);
-		Add(TEXT("ExposureTravelDistanceWeight"), TEXT("ratio"), 1.0 / 6.0, Id++);
-		return Block;
 	}
 
 	/* Initializes aligned one-Cell raw and M3 Grids for deterministic model tests. */
@@ -105,21 +67,16 @@ namespace AdaptiveEnvM3Tests
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FAEM3RequiredParametersTest,
-	"AdaptiveEnv.M3.Parameters.RequiredAndUnits",
+	"AdaptiveEnv.M3.Parameters.RuntimeContract",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
-/* Verify the exact 14-parameter block maps into the grouped M3 snapshot. */
+/* Verify the grouped M3 runtime contract accepts complete values and rejects invalid references. */
 bool FAEM3RequiredParametersTest::RunTest(const FString& Parameters)
 {
-	// Arrange one canonical transient block and valid parent bundle identity.
-	FAEParameterBlock Block = AdaptiveEnvM3Tests::MakeValidBlock();
-	FAEParameterBlockView View{ &Block };
-	FAEParameterBundleIdentity Identity{ FGuid(0xAE000003, 0, 0, 200), TEXT("1.0.0"), FString::ChrN(64, TEXT('a')) };
-	FAEM3ParameterSet ParameterSet;
-	TestTrue(TEXT("Complete block validates"), FAEM3ParameterService::BuildParameterSet(View, Identity, ParameterSet).IsValid());
-	TestTrue(TEXT("Pass maps to fixed channel"), FMath::IsNearlyEqual(ParameterSet.Channel(EAEExposureChannel::Pass).ReferenceValue, 1.0));
-	Block.Parameters.Pop();
-	TestFalse(TEXT("Missing parameter fails"), FAEM3ParameterService::BuildParameterSet(View, Identity, ParameterSet).IsValid());
+	FAEM3ParameterSet ParameterSet = AdaptiveEnvM3Tests::MakeValidParameters();
+	TestTrue(TEXT("Complete runtime parameters validate"), FAEM3ParameterService::ValidateParameterSet(ParameterSet).IsValid());
+	ParameterSet.Channel(EAEExposureChannel::Pass).ReferenceValue = 0.0;
+	TestFalse(TEXT("Non-positive channel reference fails"), FAEM3ParameterService::ValidateParameterSet(ParameterSet).IsValid());
 	return true;
 }
 

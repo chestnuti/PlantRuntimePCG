@@ -5,6 +5,7 @@
 #include "AEM4ParameterService.h"
 #include "AEEnvironmentConstraintGrid.h"
 #include "AEWorldConstraintProvider.h"
+#include "AEWorldScalarFieldAsset.h"
 #include "Components/StaticMeshComponent.h"
 
 namespace AdaptiveEnvM4Tests
@@ -24,6 +25,25 @@ namespace AdaptiveEnvM4Tests
 		Parameters.RegionState.TransitionDebounceSimulationHours = 0.5;
 		return Parameters;
 	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAEM4ScalarFieldSamplingTest, "AdaptiveEnv.M4.MoistureTexture.WorldSampling", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FAEM4ScalarFieldSamplingTest::RunTest(const FString& Parameters)
+{
+	UAEMoistureTextureAsset* Field = NewObject<UAEMoistureTextureAsset>();
+	Field->BakedDimensions = FIntPoint(2, 2);
+	Field->WorldMin = FVector2D::ZeroVector;
+	Field->WorldMax = FVector2D(100.0, 100.0);
+	Field->bFlipVerticalAxis = false;
+	Field->BakedSamples = {0, 65535, 65535, 0};
+	float Value = 0.0f;
+	TestTrue(TEXT("Centre texture sample succeeds"), Field->SampleValue(FVector(50.0, 50.0, 0.0), 0.25f, Value));
+	TestTrue(TEXT("Centre texture sample is bilinear one half"), FMath::IsNearlyEqual(Value, 0.5f, 1.0e-4f));
+	Field->OutsidePolicy = EAETextureOutsidePolicy::UseFallback;
+	TestTrue(TEXT("Outside texture sample succeeds with fallback"), Field->SampleValue(FVector(150.0, 50.0, 0.0), 0.25f, Value));
+	TestTrue(TEXT("Outside texture uses configured fallback"), FMath::IsNearlyEqual(Value, 0.25f));
+	return true;
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAEM4ParameterContractTest, "AdaptiveEnv.M4.Parameters.ConstraintAndState", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)

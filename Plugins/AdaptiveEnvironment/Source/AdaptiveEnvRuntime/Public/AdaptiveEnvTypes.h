@@ -52,7 +52,10 @@ enum class EAEHeatmapDebugMode : uint8
 	Damage,
 	Recovery,
 	DamageRate,
-	RecoveryRate
+	RecoveryRate,
+	Moisture,
+	BiomeWeight,
+	BiomeClassification
 };
 
 /* Captures one timestamped agent observation or discrete event. */
@@ -214,5 +217,3 @@ struct ADAPTIVEENVRUNTIME_API FAEBehaviourGridStats
 	UPROPERTY(BlueprintReadOnly, Category = "Statistics")
 	int64 OutOfBoundsSampleCount = 0;
 };
-
-/* Describes one citable literature source and its study context. */

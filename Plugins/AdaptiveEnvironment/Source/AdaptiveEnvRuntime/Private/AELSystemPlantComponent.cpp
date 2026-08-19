@@ -144,6 +144,7 @@ bool UAELSystemPlantComponent::BindToM7PlantSnapshot(
 		State.LifecycleState = Snapshot.LifecycleState;
 		State.LifecycleProgressRatio = FMath::Clamp(Snapshot.LifecycleProgressRatio, 0.0f, 1.0f);
 		State.bVisible = Snapshot.bVisible;
+		State.DeathFadeRatio = FMath::Clamp(Snapshot.DeathFadeRatio, 0.0f, 1.0f);
 		State.SourceSimulationStep = Snapshot.SimulationStep;
 		ApplyResolvedVisualState(State);
 	}
@@ -338,6 +339,7 @@ bool UAELSystemPlantComponent::ApplyPersistentStructuralState(
 		if (FBranchModuleRuntime* Runtime = BranchModules.Find(ModuleId))
 		{
 			Runtime->StructuralState = EAEBranchStructuralState::DeadWood;
+			Runtime->bPersistentDeathFadeLocked = true;
 			if (Runtime->Material.IsValid()) Runtime->Material->SetScalarParameterValue(TEXT("AE_DeadWood"), 1.0f);
 		}
 	}
@@ -390,6 +392,7 @@ FAELSystemResolvedPlantState UAELSystemPlantComponent::ResolvePlantState(
 		Result.LifecycleState = Snapshot.LifecycleState;
 		Result.LifecycleProgressRatio = FMath::Clamp(Snapshot.LifecycleProgressRatio, 0.0f, 1.0f);
 		Result.bVisible = Snapshot.bVisible;
+		Result.DeathFadeRatio = FMath::Clamp(Snapshot.DeathFadeRatio, 0.0f, 1.0f);
 		Result.SourceSimulationStep = Snapshot.SimulationStep;
 		return Result;
 	}
@@ -399,6 +402,7 @@ FAELSystemResolvedPlantState UAELSystemPlantComponent::ResolvePlantState(
 		Result.LifecycleState = EAEPlantLifecycleState::Dead;
 		Result.LifecycleProgressRatio = 1.0f;
 		Result.bVisible = false;
+		Result.DeathFadeRatio = 1.0f;
 		return Result;
 	}
 
@@ -406,6 +410,7 @@ FAELSystemResolvedPlantState UAELSystemPlantComponent::ResolvePlantState(
 	Result.LifecycleState = ManualState.LifecycleState;
 	Result.LifecycleProgressRatio = FMath::Clamp(ManualState.LifecycleProgressRatio, 0.0f, 1.0f);
 	Result.bVisible = ManualState.bVisible;
+	Result.DeathFadeRatio = FMath::Clamp(ManualState.DeathFadeRatio, 0.0f, 1.0f);
 	return Result;
 }
 
@@ -572,6 +577,7 @@ void UAELSystemPlantComponent::ApplyResolvedVisualState(const FAELSystemResolved
 	LastResolvedState = State;
 	const float Health = FMath::Clamp(State.HealthRatio, 0.0f, 1.0f);
 	const float Progress = FMath::Clamp(State.LifecycleProgressRatio, 0.0f, 1.0f);
+	const float SourceDeathFade = FMath::Clamp(State.DeathFadeRatio, 0.0f, 1.0f);
 	const bool bDeclining = State.LifecycleState == EAEPlantLifecycleState::Declining
 		|| State.LifecycleState == EAEPlantLifecycleState::Dead;
 	const bool bRecovering = State.LifecycleState == EAEPlantLifecycleState::Recovering;
@@ -593,6 +599,14 @@ void UAELSystemPlantComponent::ApplyResolvedVisualState(const FAELSystemResolved
 		if (Runtime.StructuralState == EAEBranchStructuralState::Intact && Health <= DeadWoodHealthThreshold)
 		{
 			Runtime.StructuralState = EAEBranchStructuralState::DeadWood;
+		}
+		const bool bWasPersistentDeathFadeLocked = Runtime.bPersistentDeathFadeLocked;
+		const float ModuleDeathFade = FAEM8MaterialPolicy::ResolveDeathFadeRatio(
+			SourceDeathFade,
+			Runtime.StructuralState,
+			Runtime.bPersistentDeathFadeLocked);
+		if (!bWasPersistentDeathFadeLocked && Runtime.bPersistentDeathFadeLocked)
+		{
 			if (UWorld* World = GetWorld())
 			{
 				if (UAEAdaptiveEnvWorldSubsystem* Subsystem = World->GetSubsystem<UAEAdaptiveEnvWorldSubsystem>())
@@ -622,6 +636,7 @@ void UAELSystemPlantComponent::ApplyResolvedVisualState(const FAELSystemResolved
 		{
 			Runtime.Material->SetScalarParameterValue(TEXT("AE_HealthRatio"), Health);
 			Runtime.Material->SetScalarParameterValue(TEXT("AE_LifecycleProgressRatio"), Progress);
+			Runtime.Material->SetScalarParameterValue(TEXT("AE_DeathFadeRatio"), ModuleDeathFade);
 			Runtime.Material->SetScalarParameterValue(TEXT("AE_WiltRatio"), WiltRatio);
 			Runtime.Material->SetScalarParameterValue(
 				TEXT("AE_DeadWood"),
@@ -631,6 +646,7 @@ void UAELSystemPlantComponent::ApplyResolvedVisualState(const FAELSystemResolved
 		{
 			Runtime.LeafMaterialInstance->SetScalarParameterValue(TEXT("AE_HealthRatio"), Health);
 			Runtime.LeafMaterialInstance->SetScalarParameterValue(TEXT("AE_LifecycleProgressRatio"), Progress);
+			Runtime.LeafMaterialInstance->SetScalarParameterValue(TEXT("AE_DeathFadeRatio"), ModuleDeathFade);
 			Runtime.LeafMaterialInstance->SetScalarParameterValue(
 				TEXT("AE_LeafRetentionRatio"),
 				FMath::Clamp(LeafRegrowth, 0.0f, 1.0f));

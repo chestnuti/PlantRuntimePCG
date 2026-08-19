@@ -19,7 +19,6 @@ public class AdaptiveEnvRuntime : ModuleRules
 
 		PrivateDependencyModuleNames.AddRange(new[]
 		{
-			"Json",
 			"Landscape",
 			"NavigationSystem",
 			"RenderCore",

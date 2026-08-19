@@ -166,3 +166,21 @@ bool FAEM8PoolPolicy::CanReturnToAvailable(const int32 LiveDetachedBranchCount)
 {
 	return LiveDetachedBranchCount == 0;
 }
+
+/* Complete the current fade before persistent dead wood becomes permanently retired. */
+float FAEM8MaterialPolicy::ResolveDeathFadeRatio(
+	const float SourceDeathFadeRatio,
+	const EAEBranchStructuralState StructuralState,
+	bool& bInOutPersistentFadeLocked)
+{
+	const float NormalizedSourceFade = FMath::Clamp(SourceDeathFadeRatio, 0.0f, 1.0f);
+	if (StructuralState != EAEBranchStructuralState::DeadWood)
+	{
+		bInOutPersistentFadeLocked = false;
+		return NormalizedSourceFade;
+	}
+
+	bInOutPersistentFadeLocked = bInOutPersistentFadeLocked
+		|| NormalizedSourceFade >= 1.0f - UE_KINDA_SMALL_NUMBER;
+	return bInOutPersistentFadeLocked ? 1.0f : NormalizedSourceFade;
+}
