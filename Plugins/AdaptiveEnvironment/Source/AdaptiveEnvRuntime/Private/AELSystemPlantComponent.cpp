@@ -82,7 +82,9 @@ bool UAELSystemPlantComponent::GeneratePreview(FString& OutError)
 		return false;
 	}
 	bGenerated = true;
-	ApplyResolvedVisualState(ResolvePlantState(GetWorld()->GetSubsystem<UAEAdaptiveEnvWorldSubsystem>()));
+	ApplyResolvedVisualState(
+		ResolvePlantState(GetWorld()->GetSubsystem<UAEAdaptiveEnvWorldSubsystem>()),
+		false);
 	return true;
 }
 
@@ -108,6 +110,7 @@ void UAELSystemPlantComponent::ClearGeneratedPlant()
 	GeneratedPlant = FAELSystemGeneratedPlant();
 	bGenerated = false;
 	bWaitingForDebrisRelease = false;
+	bOwnerDestroyRequested = false;
 	LeafInstanceCount = 0;
 }
 
@@ -146,7 +149,7 @@ bool UAELSystemPlantComponent::BindToM7PlantSnapshot(
 		State.bVisible = Snapshot.bVisible;
 		State.DeathFadeRatio = FMath::Clamp(Snapshot.DeathFadeRatio, 0.0f, 1.0f);
 		State.SourceSimulationStep = Snapshot.SimulationStep;
-		ApplyResolvedVisualState(State);
+		ApplyResolvedVisualState(State, false);
 	}
 	return true;
 }
@@ -291,7 +294,7 @@ void UAELSystemPlantComponent::EnterDebrisReleaseWait()
 void UAELSystemPlantComponent::CancelDebrisReleaseWait()
 {
 	bWaitingForDebrisRelease = false;
-	ApplyResolvedVisualState(LastResolvedState);
+	ApplyResolvedVisualState(LastResolvedState, false);
 }
 
 /* Reset one actor shell only after no detached geometry remains alive. */
@@ -369,7 +372,7 @@ void UAELSystemPlantComponent::AdvanceM8(const UAEAdaptiveEnvWorldSubsystem& Sub
 {
 	if (bGenerated)
 	{
-		ApplyResolvedVisualState(ResolvePlantState(&Subsystem));
+		ApplyResolvedVisualState(ResolvePlantState(&Subsystem), true);
 	}
 }
 
@@ -572,7 +575,9 @@ bool UAELSystemPlantComponent::InitializeLeafInstances(FString& OutError)
 }
 
 /* Map M7 or manual lifecycle state to reversible visuals while preserving broken modules. */
-void UAELSystemPlantComponent::ApplyResolvedVisualState(const FAELSystemResolvedPlantState& State)
+void UAELSystemPlantComponent::ApplyResolvedVisualState(
+	const FAELSystemResolvedPlantState& State,
+	const bool bAllowOwnerDestruction)
 {
 	LastResolvedState = State;
 	const float Health = FMath::Clamp(State.HealthRatio, 0.0f, 1.0f);
@@ -591,6 +596,8 @@ void UAELSystemPlantComponent::ApplyResolvedVisualState(const FAELSystemResolved
 			FVector2D(0.0f, 1.0f),
 			Progress)
 		: 0.0f;
+	bool bHasPersistentDeadWood = false;
+	bool bAllPersistentDeadWoodFadeLocked = true;
 
 	// Update reversible material values and preserve persistent module damage.
 	for (TPair<int64, FBranchModuleRuntime>& Pair : BranchModules)
@@ -605,6 +612,11 @@ void UAELSystemPlantComponent::ApplyResolvedVisualState(const FAELSystemResolved
 			SourceDeathFade,
 			Runtime.StructuralState,
 			Runtime.bPersistentDeathFadeLocked);
+		if (Runtime.StructuralState == EAEBranchStructuralState::DeadWood)
+		{
+			bHasPersistentDeadWood = true;
+			bAllPersistentDeadWoodFadeLocked &= Runtime.bPersistentDeathFadeLocked;
+		}
 		if (!bWasPersistentDeathFadeLocked && Runtime.bPersistentDeathFadeLocked)
 		{
 			if (UWorld* World = GetWorld())
@@ -657,6 +669,28 @@ void UAELSystemPlantComponent::ApplyResolvedVisualState(const FAELSystemResolved
 			Runtime.LeafMaterialInstance->SetScalarParameterValue(
 				TEXT("AE_Broken"),
 				Runtime.StructuralState == EAEBranchStructuralState::Broken ? 1.0f : 0.0f);
+		}
+	}
+
+	if (bAllowOwnerDestruction && !bOwnerDestroyRequested && FAEM8MaterialPolicy::ShouldDestroyOwnerAfterPersistentFade(
+		bDestroyOwnerAfterPersistentDeathFade,
+		bHasPersistentDeadWood,
+		bAllPersistentDeadWoodFadeLocked))
+	{
+		bOwnerDestroyRequested = true;
+		if (AActor* Owner = GetOwner())
+		{
+			Owner->SetActorEnableCollision(false);
+			if (UWorld* World = GetWorld())
+			{
+				if (UAEAdaptiveEnvWorldSubsystem* Subsystem = World->GetSubsystem<UAEAdaptiveEnvWorldSubsystem>())
+				{
+					Subsystem->MarkM8PlantRepresentationRetired(SourceStablePointId);
+					Subsystem->UnregisterLSystemPlant(this);
+					Subsystem->ForgetM8ManagedActor(Owner);
+				}
+			}
+			Owner->Destroy();
 		}
 	}
 }

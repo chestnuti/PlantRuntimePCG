@@ -184,3 +184,12 @@ float FAEM8MaterialPolicy::ResolveDeathFadeRatio(
 		|| NormalizedSourceFade >= 1.0f - UE_KINDA_SMALL_NUMBER;
 	return bInOutPersistentFadeLocked ? 1.0f : NormalizedSourceFade;
 }
+
+/* Gate destructive cleanup on explicit configuration and completed persistent fade. */
+bool FAEM8MaterialPolicy::ShouldDestroyOwnerAfterPersistentFade(
+	const bool bDestroyConfigured,
+	const bool bHasPersistentDeadWood,
+	const bool bAllPersistentDeadWoodFadeLocked)
+{
+	return bDestroyConfigured && bHasPersistentDeadWood && bAllPersistentDeadWoodFadeLocked;
+}

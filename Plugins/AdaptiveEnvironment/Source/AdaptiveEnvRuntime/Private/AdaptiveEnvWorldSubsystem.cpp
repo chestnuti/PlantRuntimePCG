@@ -520,6 +520,41 @@ bool UAEAdaptiveEnvWorldSubsystem::ReturnM8PooledActor(AActor* Actor)
 	return true;
 }
 
+/* Remove every pool reference before one actor is permanently destroyed. */
+void UAEAdaptiveEnvWorldSubsystem::ForgetM8ManagedActor(AActor* Actor)
+{
+	if (Actor == nullptr)
+	{
+		return;
+	}
+	M8ManagedPoolActors.Remove(Actor);
+	for (TPair<TObjectKey<UClass>, TArray<TWeakObjectPtr<AActor>>>& Pair : M8AvailablePoolActorsByClass)
+	{
+		Pair.Value.RemoveAll(
+			[Actor](const TWeakObjectPtr<AActor>& Item)
+			{
+				return !Item.IsValid() || Item.Get() == Actor;
+			});
+	}
+}
+
+/* Keep one permanently retired plant hidden without modifying its ecological snapshot. */
+void UAEAdaptiveEnvWorldSubsystem::MarkM8PlantRepresentationRetired(const int64 StablePointId)
+{
+	if (StablePointId <= 0)
+	{
+		return;
+	}
+	M8RetiredPlantRepresentations.Add(StablePointId);
+	SetM7RepresentativeOverride(StablePointId, true);
+}
+
+/* Query the World-lifetime visual retirement set used by M8 managers. */
+bool UAEAdaptiveEnvWorldSubsystem::IsM8PlantRepresentationRetired(const int64 StablePointId) const
+{
+	return StablePointId > 0 && M8RetiredPlantRepresentations.Contains(StablePointId);
+}
+
 /* Persist one broken module before its actor-owned physics presentation changes. */
 void UAEAdaptiveEnvWorldSubsystem::RecordM8BrokenBranch(
 	const int64 StablePointId,

@@ -65,6 +65,9 @@ public:
 	/* Converts health into the persistent-dead-wood threshold. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "M8|Lifecycle", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float DeadWoodHealthThreshold = 0.05f;
+	/* Destroys the owner after persistent dead wood has fully completed its material fade. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "M8|Lifecycle")
+	bool bDestroyOwnerAfterPersistentDeathFade = false;
 	/* Defines fixed simulation seconds that detached branch geometry remains alive. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "M8|Breakage", meta = (ClampMin = "0.0", ClampMax = "300.0", Units = "s"))
 	float DetachedBranchLifetimeSeconds = 15.0f;
@@ -162,7 +165,7 @@ private:
 	/* Creates deterministic module-owned HISM leaves from logical leaf regions. */
 	bool InitializeLeafInstances(FString& OutError);
 	/* Applies material and HISM visibility values without touching initialized topology. */
-	void ApplyResolvedVisualState(const FAELSystemResolvedPlantState& State);
+	void ApplyResolvedVisualState(const FAELSystemResolvedPlantState& State, bool bAllowOwnerDestruction);
 	/* Releases one runtime-owned component through normal Unreal destruction. */
 	static void DestroyOwnedComponent(UActorComponent* Component);
 
@@ -185,6 +188,8 @@ private:
 	bool bGenerated = false;
 	/* Reports whether attached visuals are suspended during delayed pool release. */
 	bool bWaitingForDebrisRelease = false;
+	/* Prevents duplicate owner destruction while Unreal processes the request. */
+	bool bOwnerDestroyRequested = false;
 	/* Stores the total concrete HISM leaves created for the current plant. */
 	int32 LeafInstanceCount = 0;
 };

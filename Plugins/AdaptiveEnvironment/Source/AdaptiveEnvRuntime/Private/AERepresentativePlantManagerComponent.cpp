@@ -37,7 +37,10 @@ void UAERepresentativePlantManagerComponent::EndPlay(const EEndPlayReason::Type 
 		{
 			for (TPair<int64, FManagedPlantEntry>& Pair : ManagedPlants)
 			{
-				Subsystem->SetM7RepresentativeOverride(Pair.Key, false);
+				if (!Subsystem->IsM8PlantRepresentationRetired(Pair.Key))
+				{
+					Subsystem->SetM7RepresentativeOverride(Pair.Key, false);
+				}
 				if (UAELSystemPlantComponent* Plant = Pair.Value.PlantComponent.Get())
 				{
 					Subsystem->UnregisterLSystemPlant(Plant);
@@ -130,6 +133,21 @@ void UAERepresentativePlantManagerComponent::AdvanceNeighborhoodActivation(
 	ManagedIds.Sort();
 	for (const int64 StablePointId : ManagedIds)
 	{
+		const FManagedPlantEntry* Entry = ManagedPlants.Find(StablePointId);
+		if (Entry != nullptr && (!Entry->Actor.IsValid() || !Entry->PlantComponent.IsValid()))
+		{
+			if (!Subsystem.IsM8PlantRepresentationRetired(StablePointId))
+			{
+				Subsystem.SetM7RepresentativeOverride(StablePointId, false);
+			}
+			ManagedPlants.Remove(StablePointId);
+		}
+	}
+	ManagedIds.Reset();
+	ManagedPlants.GetKeys(ManagedIds);
+	ManagedIds.Sort();
+	for (const int64 StablePointId : ManagedIds)
+	{
 		FManagedPlantEntry* Entry = ManagedPlants.Find(StablePointId);
 		if (Entry != nullptr && Entry->PlantComponent.IsValid() && CleanupBudget > 0)
 		{
@@ -215,7 +233,9 @@ void UAERepresentativePlantManagerComponent::AdvanceNeighborhoodActivation(
 	for (const FAEPlantInstanceSnapshot& Snapshot : Snapshots)
 	{
 		const FAEM8RepresentativePlantBinding* Binding = FindBinding(Snapshot.SpeciesId);
-		if (!Snapshot.bVisible || Snapshot.StablePointId <= 0 || ManagedPlants.Contains(Snapshot.StablePointId)
+		if (!Snapshot.bVisible || Snapshot.StablePointId <= 0
+			|| Subsystem.IsM8PlantRepresentationRetired(Snapshot.StablePointId)
+			|| ManagedPlants.Contains(Snapshot.StablePointId)
 			|| Binding == nullptr || Binding->MaxActivePlants <= CountActiveSpecies(Snapshot.SpeciesId))
 		{
 			continue;

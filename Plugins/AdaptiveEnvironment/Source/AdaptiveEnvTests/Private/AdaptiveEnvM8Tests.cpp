@@ -74,6 +74,18 @@ bool FAEM8PersistentDeadWoodDeathFadeTest::RunTest(const FString& Parameters)
 			EAEBranchStructuralState::Stressed,
 			bPersistentFadeLocked),
 		1.0f);
+	TestFalse(
+		TEXT("Disabled cleanup preserves the owner"),
+		FAEM8MaterialPolicy::ShouldDestroyOwnerAfterPersistentFade(false, true, true));
+	TestFalse(
+		TEXT("Incomplete persistent fade preserves the owner"),
+		FAEM8MaterialPolicy::ShouldDestroyOwnerAfterPersistentFade(true, true, false));
+	TestFalse(
+		TEXT("No persistent dead wood preserves the owner"),
+		FAEM8MaterialPolicy::ShouldDestroyOwnerAfterPersistentFade(true, false, true));
+	TestTrue(
+		TEXT("Configured completed persistent fade destroys the owner"),
+		FAEM8MaterialPolicy::ShouldDestroyOwnerAfterPersistentFade(true, true, true));
 	return true;
 }
 

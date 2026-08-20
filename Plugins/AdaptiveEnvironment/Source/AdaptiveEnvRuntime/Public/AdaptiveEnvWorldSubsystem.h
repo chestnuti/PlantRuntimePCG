@@ -107,6 +107,12 @@ public:
 	AActor* AcquireM8PooledActor(TSubclassOf<AActor> ActorClass, int32 PoolCapacity, AActor* Owner, FString& OutError);
 	/* Returns one fully expired actor shell to its class-specific available pool. */
 	bool ReturnM8PooledActor(AActor* Actor);
+	/* Forgets one actor that is being permanently destroyed instead of returned to its pool. */
+	void ForgetM8ManagedActor(AActor* Actor);
+	/* Permanently suppresses one retired M8 plant representation for this World lifetime. */
+	void MarkM8PlantRepresentationRetired(int64 StablePointId);
+	/* Returns whether one stable plant has permanently retired its runtime representation. */
+	bool IsM8PlantRepresentationRetired(int64 StablePointId) const;
 	/* Stores one persistent broken-module fact before physics side effects. */
 	void RecordM8BrokenBranch(int64 StablePointId, FName SpeciesId, int64 RuleContentHash, int32 GenerationSeed, int64 BranchModuleId);
 	/* Stores one persistent dead-wood fact independent from recoverable health. */
@@ -388,6 +394,8 @@ private:
 	TMap<TObjectKey<UClass>, TArray<TWeakObjectPtr<AActor>>> M8AvailablePoolActorsByClass;
 	/* Stores persistent structural facts independently from recyclable actor shells. */
 	TMap<int64, FAEM8PersistentPlantState> M8PersistentPlantStates;
+	/* Prevents deleted persistent dead wood from restoring M7 or spawning M8 again. */
+	TSet<int64> M8RetiredPlantRepresentations;
 	/* Stores unique row-major M7 Cells awaiting their first authoritative M4 sample. */
 	TSet<int32> PendingM7BaselineCellIndices;
 	/* Stores active registered M4 moisture sources. */
