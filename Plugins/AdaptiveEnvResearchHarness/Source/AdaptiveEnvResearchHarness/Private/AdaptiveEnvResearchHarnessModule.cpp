@@ -1,0 +1,5 @@
+#include "AdaptiveEnvResearchHarnessModule.h"
+
+#include "Modules/ModuleManager.h"
+
+IMPLEMENT_MODULE(FAdaptiveEnvResearchHarnessModule, AdaptiveEnvResearchHarness)

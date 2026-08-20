@@ -48,7 +48,7 @@ bool FAESettingsDefaultsTest::RunTest(const FString& Parameters)
 	TestTrue(
 		TEXT("Optional environment profile path is syntactically valid"),
 		Settings->EnvironmentProfile.IsNull() || Settings->EnvironmentProfile.ToSoftObjectPath().IsValid());
-	TestEqual(TEXT("Settings schema"), Settings->SettingsSchemaVersion, 13);
+	TestEqual(TEXT("Settings schema"), Settings->SettingsSchemaVersion, 14);
 	TestEqual(TEXT("M6 visible threshold"), Settings->M6VisibleDamageThresholdRatio, 0.15f);
 	TestEqual(TEXT("M6 full-path threshold"), Settings->M6FullPathDamageThresholdRatio, 0.65f);
 	TestEqual(TEXT("M6 formation rate"), Settings->M6FormationRatePerSimulationHour, 0.20f);

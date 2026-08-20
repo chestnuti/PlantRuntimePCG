@@ -16,6 +16,13 @@
 			"Enabled": true
 		},
 		{
+			"Name": "AdaptiveEnvResearchHarness",
+			"Enabled": true,
+			"TargetAllowList": [
+				"Editor"
+			]
+		},
+		{
 			"Name": "ModelingToolsEditorMode",
 			"Enabled": true,
 			"TargetAllowList": [

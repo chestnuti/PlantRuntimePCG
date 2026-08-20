@@ -1,0 +1,24 @@
+{
+  "FileVersion": 3,
+  "Version": 1,
+  "VersionName": "0.1.0",
+  "FriendlyName": "Adaptive Environment Research Harness",
+  "Description": "Editor-only dissertation experiment orchestration and evidence capture.",
+  "Category": "Testing",
+  "CanContainContent": false,
+  "Installed": false,
+  "Plugins": [
+    {
+      "Name": "AdaptiveEnvironment",
+      "Enabled": true
+    }
+  ],
+  "Modules": [
+    {
+      "Name": "AdaptiveEnvResearchHarness",
+      "Type": "DeveloperTool",
+      "LoadingPhase": "PostEngineInit",
+      "TargetAllowList": ["Editor"]
+    }
+  ]
+}
