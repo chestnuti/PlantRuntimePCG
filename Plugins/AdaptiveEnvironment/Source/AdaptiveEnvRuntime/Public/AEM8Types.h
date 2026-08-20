@@ -349,4 +349,9 @@ struct ADAPTIVEENVRUNTIME_API FAEM8MaterialPolicy
 		float SourceDeathFadeRatio,
 		EAEBranchStructuralState StructuralState,
 		bool& bInOutPersistentFadeLocked);
+	/* Returns whether configured persistent dead wood is ready for owner destruction. */
+	static bool ShouldDestroyOwnerAfterPersistentFade(
+		bool bDestroyConfigured,
+		bool bHasPersistentDeadWood,
+		bool bAllPersistentDeadWoodFadeLocked);
 };
