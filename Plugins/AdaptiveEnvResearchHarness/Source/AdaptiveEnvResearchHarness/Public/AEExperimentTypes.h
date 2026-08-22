@@ -8,10 +8,26 @@ class UAEAdaptiveEnvironmentProfile;
 UENUM(BlueprintType)
 enum class EAEExperimentType : uint8
 {
-    P00,
-    E01,
-    E02,
-    E03
+    E0,
+    E1,
+    E2,
+    E3,
+    E4,
+    E5
+};
+
+UENUM(BlueprintType)
+enum class EAEExperimentPhaseType : uint8
+{
+    Reset,
+    Warmup,
+    Baseline,
+    Replay,
+    Idle,
+    Recovery,
+    Capture,
+    PerformanceMeasure,
+    Flush
 };
 
 UENUM(BlueprintType)
@@ -47,15 +63,42 @@ struct ADAPTIVEENVRESEARCHHARNESS_API FAEExperimentCapturePoint
 };
 
 USTRUCT(BlueprintType)
+struct ADAPTIVEENVRESEARCHHARNESS_API FAEExperimentPhaseSpec
+{
+    GENERATED_BODY()
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Experiment")
+    FName PhaseId = TEXT("Main");
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Experiment")
+    EAEExperimentPhaseType Type = EAEExperimentPhaseType::Replay;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Experiment", meta = (ClampMin = "0.0", Units = "s"))
+    float DurationSeconds = 0.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Experiment", meta = (ClampMin = "0"))
+    int64 DurationSimulationSteps = 0;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Experiment")
+    bool bReplayEnabled = false;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Experiment")
+    bool bRuntimeEnabled = true;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Experiment")
+    bool bCollectSnapshots = true;
+};
+
+USTRUCT(BlueprintType)
 struct ADAPTIVEENVRESEARCHHARNESS_API FAEExperimentRunSpec
 {
     GENERATED_BODY()
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Experiment")
-    FString RunId = TEXT("P00_Pilot_S1337_R00");
+    FString RunId = TEXT("E0_PILOT_S1337_R00");
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Experiment")
-    EAEExperimentType Experiment = EAEExperimentType::P00;
+    EAEExperimentType Experiment = EAEExperimentType::E0;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Experiment")
     FName ConditionId = TEXT("Pilot");
@@ -89,6 +132,15 @@ struct ADAPTIVEENVRESEARCHHARNESS_API FAEExperimentRunSpec
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Experiment")
     bool bRuntimeEnabled = true;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Experiment|Safety")
+    bool bAllowOverwrite = false;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Experiment|Determinism")
+    bool bApplySeedToRuntime = true;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Experiment|Phases")
+    TArray<FAEExperimentPhaseSpec> Phases;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Experiment")
     TArray<FIntPoint> ObservedCells;

@@ -69,6 +69,24 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Adaptive Environment|Behaviour")
 	int64 GetSchedulerOverrunCount() const { return SchedulerOverrunCount; }
 
+	/* Returns the measured wall-clock cost of the latest subsystem Tick. */
+	UFUNCTION(BlueprintPure, Category = "Adaptive Environment|Performance")
+	double GetLastTickTimeMilliseconds() const { return LastTickTimeMilliseconds; }
+
+	/* Returns the maximum measured subsystem Tick cost since the latest reset. */
+	UFUNCTION(BlueprintPure, Category = "Adaptive Environment|Performance")
+	double GetMaximumTickTimeMilliseconds() const { return MaximumTickTimeMilliseconds; }
+
+	/* Returns the mean measured subsystem Tick cost since the latest reset. */
+	UFUNCTION(BlueprintPure, Category = "Adaptive Environment|Performance")
+	double GetMeanTickTimeMilliseconds() const
+	{
+		return TimedTickCount > 0 ? AccumulatedTickTimeMilliseconds / static_cast<double>(TimedTickCount) : 0.0;
+	}
+
+	UFUNCTION(BlueprintPure, Category = "Adaptive Environment|Performance")
+	int64 GetTimedTickCount() const { return TimedTickCount; }
+
 	/* Validates and queues one behaviour sample for deterministic processing. */
 	UFUNCTION(BlueprintCallable, Category = "Adaptive Environment|Behaviour")
 	EAEBehaviourSubmitResult SubmitBehaviourSample(const FAEBehaviourSample& Sample);
@@ -297,6 +315,11 @@ private:
 	FGuid InstanceId;
 	/* Counts render ticks received by the subsystem. */
 	int64 TickCount = 0;
+	/* Stores low-overhead wall-clock diagnostics for dissertation performance runs. */
+	double LastTickTimeMilliseconds = 0.0;
+	double MaximumTickTimeMilliseconds = 0.0;
+	double AccumulatedTickTimeMilliseconds = 0.0;
+	int64 TimedTickCount = 0;
 	/* Controls whether the ordered runtime pipeline can tick. */
 	bool bRuntimeEnabled = false;
 	/* Freezes fixed-step and visual advancement while replay observation is active. */

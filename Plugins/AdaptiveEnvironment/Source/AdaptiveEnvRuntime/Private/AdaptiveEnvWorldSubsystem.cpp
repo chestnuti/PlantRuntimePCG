@@ -182,6 +182,14 @@ void UAEAdaptiveEnvWorldSubsystem::Deinitialize()
 // Advance registration, fixed-step sampling, aggregation, and debug output.
 void UAEAdaptiveEnvWorldSubsystem::Tick(float DeltaTime)
 {
+	const double TickStartSeconds = FPlatformTime::Seconds();
+	const auto CommitTickTiming = [this, TickStartSeconds]()
+	{
+		LastTickTimeMilliseconds = (FPlatformTime::Seconds() - TickStartSeconds) * 1000.0;
+		MaximumTickTimeMilliseconds = FMath::Max(MaximumTickTimeMilliseconds, LastTickTimeMilliseconds);
+		AccumulatedTickTimeMilliseconds += LastTickTimeMilliseconds;
+		++TimedTickCount;
+	};
 	// Apply deferred registrations before any service iterates active arrays.
 	++TickCount;
 	ApplyPendingRegistrations();
@@ -189,6 +197,7 @@ void UAEAdaptiveEnvWorldSubsystem::Tick(float DeltaTime)
 	{
 		// Keep transient debug drawing alive without advancing any simulation stage.
 		UpdateDebugRenderers(DeltaTime);
+		CommitTickTiming();
 		return;
 	}
 
@@ -230,6 +239,7 @@ void UAEAdaptiveEnvWorldSubsystem::Tick(float DeltaTime)
 	UpdateM7VisualAdapters();
 	UpdateDebugRenderers(DeltaTime);
 	BehaviourGrid.ClearDirtyCells();
+	CommitTickTiming();
 }
 
 // Tick only after successful initialization when runtime is enabled.
@@ -764,6 +774,10 @@ void UAEAdaptiveEnvWorldSubsystem::ResetBehaviourGrid()
 	BehaviourTimeSeconds = 0.0;
 	ProcessedBehaviourStepCount = 0;
 	SchedulerOverrunCount = 0;
+	LastTickTimeMilliseconds = 0.0;
+	MaximumTickTimeMilliseconds = 0.0;
+	AccumulatedTickTimeMilliseconds = 0.0;
+	TimedTickCount = 0;
 	PendingDebugActiveCellIndices.Reset();
 	LastRenderedDebugCellIndices.Reset();
 	// Reset each valid tracker so its next observation is treated as the first.

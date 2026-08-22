@@ -4,6 +4,7 @@
 #include "AEAdaptiveEnvironmentProfile.h"
 #include "AELSystemPlantComponent.h"
 #include "AERepresentativePlantManagerComponent.h"
+#include "AEVegetationDistributionComponent.h"
 #include "HAL/FileManager.h"
 #include "HAL/IConsoleManager.h"
 #include "JsonObjectConverter.h"
@@ -11,6 +12,7 @@
 #include "Misc/App.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
+#include "Internationalization/Regex.h"
 #include "PlayerReplayManager.h"
 #include "Serialization/JsonSerializer.h"
 #include "Serialization/JsonWriter.h"
@@ -25,7 +27,8 @@ namespace AEExperimentPrivate
         TEXT("FlowX,FlowY,FlowMagnitude,BehaviourRevision,ConfigRevision,")
         TEXT("PassExposure,TravelExposure,DwellExposure,SprintExposure,CollectExposure,CombatExposure,CurrentExposure,ExposureRevision,")
         TEXT("SlopeDegrees,MoistureRatio,ConstraintPressureRatio,HabitatSuitabilityRatio,EnvironmentState,ConstraintRevision,")
-        TEXT("EffectiveImpactRatio,DamageRatio,RecoveryRatio,ResponseRevision,PathIntensity,PathFlowX,PathFlowY,PathVisualRevision");
+        TEXT("EffectiveImpactRatio,DamageRatio,RecoveryRatio,DamageRatePerSimulationHour,RecoveryRatePerSimulationHour,")
+        TEXT("SourceExposureRevision,SourceConstraintRevision,ResponseRevision,PathIntensity,PathFlowX,PathFlowY,PathVisualRevision");
 
     const TCHAR* PlantHeader =
         TEXT("RunId,StablePointId,SpeciesId,CellX,CellY,WorldX,WorldY,WorldZ,HealthRatio,DistributionRatio,")
@@ -112,11 +115,30 @@ void AAEExperimentOrchestrator::AbortExperiment(const FString& Reason)
     }
 }
 
+FString AAEExperimentOrchestrator::BuildRunId(
+    const EAEExperimentType Experiment,
+    const FName ConditionId,
+    const int32 Seed,
+    const int32 RepeatIndex)
+{
+    const FString ExperimentName = StaticEnum<EAEExperimentType>()->GetNameStringByValue(static_cast<int64>(Experiment));
+    FString SafeCondition = ConditionId.IsNone() ? TEXT("C0") : ConditionId.ToString();
+    SafeCondition.ReplaceCharInline(TEXT(' '), TEXT('_'));
+    return FString::Printf(TEXT("%s_%s_S%d_R%02d"), *ExperimentName, *SafeCondition, Seed, FMath::Max(RepeatIndex, 0));
+}
+
+bool AAEExperimentOrchestrator::IsValidRunId(const FString& RunId)
+{
+    const FRegexPattern Pattern(TEXT("^E[0-5]_[A-Za-z0-9][A-Za-z0-9_-]*_S-?[0-9]+_R[0-9]{2,}$"));
+    FRegexMatcher Matcher(Pattern, RunId);
+    return Matcher.FindNext() && Matcher.GetMatchBeginning() == 0 && Matcher.GetMatchEnding() == RunId.Len();
+}
+
 bool AAEExperimentOrchestrator::ValidateAndPrepare()
 {
-    if (RunSpec.RunId.IsEmpty() || RunSpec.RunId.Contains(TEXT("..")) || RunSpec.RunId.Contains(TEXT("/")) || RunSpec.RunId.Contains(TEXT("\\")))
+    if (!IsValidRunId(RunSpec.RunId))
     {
-        FailExperiment(TEXT("RunId is empty or contains an unsafe path segment."));
+        FailExperiment(TEXT("RunId must use E{0-5}_{Condition}_S{Seed}_R{Repeat} and contain only safe characters."));
         return false;
     }
     if (!FMath::IsFinite(RunSpec.WarmupSeconds) || RunSpec.WarmupSeconds < 0.0f
@@ -132,6 +154,15 @@ bool AAEExperimentOrchestrator::ValidateAndPrepare()
     if (Environment == nullptr)
     {
         FailExperiment(TEXT("Adaptive Environment World Subsystem is unavailable."));
+        return false;
+    }
+
+    OutputDirectory = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("AdaptiveEnvResearch"), RunSpec.RunId);
+    if (!RunSpec.bAllowOverwrite && IFileManager::Get().DirectoryExists(*OutputDirectory))
+    {
+        const FString ConflictingRunId = RunSpec.RunId;
+        OutputDirectory.Reset();
+        FailExperiment(FString::Printf(TEXT("Output directory already exists for RunId %s."), *ConflictingRunId));
         return false;
     }
 
@@ -162,6 +193,16 @@ bool AAEExperimentOrchestrator::ValidateAndPrepare()
         }
     }
 
+    if (RunSpec.bApplySeedToRuntime)
+    {
+        FString SeedError;
+        if (!ApplyExperimentSeed(SeedError))
+        {
+            FailExperiment(SeedError);
+            return false;
+        }
+    }
+
     bPreviousObservationPaused = Environment->IsObservationPaused();
     Environment->SetObservationPaused(!RunSpec.bRuntimeEnabled);
 
@@ -171,7 +212,6 @@ bool AAEExperimentOrchestrator::ValidateAndPrepare()
         MaxFps->Set(FMath::Max(RunSpec.TargetFrameRate, 0), ECVF_SetByCode);
     }
 
-    OutputDirectory = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("AdaptiveEnvResearch"), RunSpec.RunId);
     IFileManager::Get().MakeDirectory(*OutputDirectory, true);
     CellRows = {AEExperimentPrivate::CellHeader};
     PlantRows = {AEExperimentPrivate::PlantHeader};
@@ -179,6 +219,53 @@ bool AAEExperimentOrchestrator::ValidateAndPrepare()
     PerformanceRows = {AEExperimentPrivate::PerformanceHeader};
     EventRows = {AEExperimentPrivate::EventHeader};
     AppendEvent(TEXT("Prepared"), FString::Printf(TEXT("ReplaySlot=%s"), *RunSpec.ReplaySlotName));
+    return true;
+}
+
+bool AAEExperimentOrchestrator::ApplyExperimentSeed(FString& OutError)
+{
+    AppliedM7DistributionCount = 0;
+    AppliedM8PlantCount = 0;
+    UWorld* World = GetWorld();
+    if (World == nullptr)
+    {
+        OutError = TEXT("Cannot apply experiment Seed without a World.");
+        return false;
+    }
+
+    for (TActorIterator<AActor> It(World); It; ++It)
+    {
+        TInlineComponentArray<UAEVegetationDistributionComponent*> Distributions(*It);
+        for (UAEVegetationDistributionComponent* Distribution : Distributions)
+        {
+            if (IsValid(Distribution))
+            {
+                Distribution->DistributionSeed = RunSpec.Seed;
+                if (!Distribution->RebuildStructuralDistribution())
+                {
+                    OutError = FString::Printf(TEXT("M7 distribution rebuild failed after applying Seed to %s."), *GetNameSafe(Distribution));
+                    return false;
+                }
+                ++AppliedM7DistributionCount;
+            }
+        }
+
+        TInlineComponentArray<UAELSystemPlantComponent*> Plants(*It);
+        for (UAELSystemPlantComponent* Plant : Plants)
+        {
+            if (IsValid(Plant))
+            {
+                Plant->GenerationSeed = RunSpec.Seed;
+                ++AppliedM8PlantCount;
+            }
+        }
+    }
+
+    if (AppliedM7DistributionCount == 0)
+    {
+        OutError = TEXT("Experiment Seed could not be applied because no M7 distribution component was found.");
+        return false;
+    }
     return true;
 }
 
@@ -247,9 +334,10 @@ void AAEExperimentOrchestrator::CollectSnapshot(const float DeltaSeconds)
             }
         }
         PerformanceRows.Add(FString::Printf(
-            TEXT("%s,%s,%d,%lld,%.6f,%lld,%.6f,,%lld,%d,%d,%d"),
+            TEXT("%s,%s,%d,%lld,%.6f,%lld,%.6f,%.6f,%lld,%d,%d,%d"),
             *CsvEscape(RunSpec.RunId), *CsvEscape(RunSpec.ConditionId.ToString()), RunSpec.RepeatIndex,
             SampleIndex++, RunElapsedSeconds, CurrentStep, DeltaSeconds * 1000.0f,
+            Environment->GetLastTickTimeMilliseconds(),
             Environment->GetSchedulerOverrunCount(), Environment->GetDirtyCellCount(), Plants.Num(), ActiveM8));
     }
 
@@ -293,7 +381,7 @@ void AAEExperimentOrchestrator::CollectCells()
         CellRows.Add(FString::Printf(
             TEXT("%s,%s,%d,%d,%.6f,%lld,%d,%d,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%lld,%lld,")
             TEXT("%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%lld,%.6f,%.6f,%.6f,%.6f,%d,%lld,")
-            TEXT("%.6f,%.6f,%.6f,%lld,%.6f,%.6f,%.6f,%lld"),
+            TEXT("%.6f,%.6f,%.6f,%.6f,%.6f,%lld,%lld,%lld,%.6f,%.6f,%.6f,%lld"),
             *CsvEscape(RunSpec.RunId), *CsvEscape(RunSpec.ConditionId.ToString()), RunSpec.RepeatIndex, RunSpec.Seed,
             Environment->GetBehaviourTimeSeconds(), Environment->GetProcessedBehaviourStepCount(), Coordinate.X, Coordinate.Y,
             M1.PassCount, M1.TravelDistanceMeters, M1.DwellSeconds, M1.SprintDistanceMeters, M1.CollectEventCount, M1.CombatEventCount,
@@ -301,7 +389,9 @@ void AAEExperimentOrchestrator::CollectCells()
             M3.PassExposure, M3.TravelExposure, M3.DwellExposure, M3.SprintExposure, M3.CollectExposure, M3.CombatExposure,
             M3.CurrentExposure, M3.ExposureRevision, M4.SlopeDegrees, M4.MoistureRatio, M4.ConstraintPressureRatio,
             M4.HabitatSuitabilityRatio, static_cast<int32>(M4.State), M4.ConstraintRevision,
-            M5.EffectiveImpactRatio, M5.DamageRatio, M5.RecoveryRatio, M5.ResponseRevision,
+            M5.EffectiveImpactRatio, M5.DamageRatio, M5.RecoveryRatio,
+            M5.DamageRatePerSimulationHour, M5.RecoveryRatePerSimulationHour,
+            M5.SourceExposureRevision, M5.SourceConstraintRevision, M5.ResponseRevision,
             M6.PathIntensity, M6.FlowVector.X, M6.FlowVector.Y, M6.PathVisualRevision));
     }
 }
@@ -428,6 +518,10 @@ FString AAEExperimentOrchestrator::MakeManifestJson(const FString& Status) const
     Root->SetStringField(TEXT("failureReason"), FailureReason);
     Root->SetNumberField(TEXT("durationSeconds"), RunElapsedSeconds);
     Root->SetNumberField(TEXT("finalSimulationStep"), Environment != nullptr ? Environment->GetProcessedBehaviourStepCount() : 0);
+    Root->SetNumberField(TEXT("appliedM7DistributionCount"), AppliedM7DistributionCount);
+    Root->SetNumberField(TEXT("appliedM8PlantCount"), AppliedM8PlantCount);
+    Root->SetNumberField(TEXT("meanSubsystemTickTimeMs"), Environment != nullptr ? Environment->GetMeanTickTimeMilliseconds() : 0.0);
+    Root->SetNumberField(TEXT("maximumSubsystemTickTimeMs"), Environment != nullptr ? Environment->GetMaximumTickTimeMilliseconds() : 0.0);
 
     TArray<TSharedPtr<FJsonValue>> Cells;
     for (const FIntPoint Cell : RunSpec.ObservedCells)
