@@ -102,6 +102,30 @@ struct ADAPTIVEENVRUNTIME_API FAEM3CellSnapshot
 	UPROPERTY(BlueprintReadOnly, Category = "Adaptive Environment|M3")
 	float CombatExposure = 0.0f;
 
+	/* Stores the maximum normalized Pass contribution observed since the last M3 reset. */
+	UPROPERTY(BlueprintReadOnly, Category = "Adaptive Environment|M3|Diagnostics")
+	float PeakPassExposure = 0.0f;
+
+	/* Stores the maximum normalized non-sprint Travel contribution observed since the last M3 reset. */
+	UPROPERTY(BlueprintReadOnly, Category = "Adaptive Environment|M3|Diagnostics")
+	float PeakTravelExposure = 0.0f;
+
+	/* Stores the maximum normalized Dwell contribution observed since the last M3 reset. */
+	UPROPERTY(BlueprintReadOnly, Category = "Adaptive Environment|M3|Diagnostics")
+	float PeakDwellExposure = 0.0f;
+
+	/* Stores the maximum normalized Sprint contribution observed since the last M3 reset. */
+	UPROPERTY(BlueprintReadOnly, Category = "Adaptive Environment|M3|Diagnostics")
+	float PeakSprintExposure = 0.0f;
+
+	/* Stores the maximum normalized Collect contribution observed since the last M3 reset. */
+	UPROPERTY(BlueprintReadOnly, Category = "Adaptive Environment|M3|Diagnostics")
+	float PeakCollectExposure = 0.0f;
+
+	/* Stores the maximum normalized Combat contribution observed since the last M3 reset. */
+	UPROPERTY(BlueprintReadOnly, Category = "Adaptive Environment|M3|Diagnostics")
+	float PeakCombatExposure = 0.0f;
+
 	/* Stores accumulated and decayed total Exposure. */
 	UPROPERTY(BlueprintReadOnly, Category = "Adaptive Environment|M3")
 	float CurrentExposure = 0.0f;

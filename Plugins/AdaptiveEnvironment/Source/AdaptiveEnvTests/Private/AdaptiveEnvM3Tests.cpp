@@ -157,6 +157,46 @@ bool FAEM3CumulativeDeltaTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FAEM3TravelPeakPersistenceTest,
+	"AdaptiveEnv.M3.Exposure.TravelPeakPersistsAfterTransient",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+/* Verify diagnostics preserve a fixed-step Travel peak after the transient channel returns to zero. */
+bool FAEM3TravelPeakPersistenceTest::RunTest(const FString& Parameters)
+{
+	FAEHeatmapGrid RawGrid;
+	FAEExposureGrid ExposureGrid;
+	TestTrue(TEXT("Grids initialize"), AdaptiveEnvM3Tests::InitializeGrids(RawGrid, ExposureGrid));
+	const FAEM3ParameterSet ParameterSet = AdaptiveEnvM3Tests::MakeValidParameters();
+
+	FAEBehaviourSample Move;
+	Move.AgentId = FGuid(0xAE000003, 0, 7, 1);
+	Move.PreviousWorldLocation = FVector(-10.0, 0.0, 0.0);
+	Move.WorldLocation = FVector(10.0, 0.0, 0.0);
+	Move.Timestamp = 1.0;
+	Move.DeltaSeconds = 0.1f;
+	Move.TravelDistanceMeters = 0.25f;
+	Move.SequenceNumber = 0;
+	Move.bHasPreviousLocation = true;
+	Move.BehaviourTag = AdaptiveEnvGameplayTags::Behaviour_Move.GetTag();
+	RawGrid.AccumulateSample(Move);
+
+	const TArray<int32> Dirty = RawGrid.GetDirtyCellIndices();
+	TestTrue(TEXT("First update succeeds"), ExposureGrid.Update(RawGrid, Dirty, 0.0, 0.0, RawGrid.GetBehaviourRevision(), ParameterSet));
+	FAEM3CellSnapshot First;
+	ExposureGrid.GetCellSnapshot(FIntPoint::ZeroValue, First);
+	TestTrue(TEXT("Travel transient is captured"), FMath::IsNearlyEqual(First.TravelExposure, 0.25f, 1.0e-6f));
+	TestTrue(TEXT("Travel peak is captured"), FMath::IsNearlyEqual(First.PeakTravelExposure, 0.25f, 1.0e-6f));
+
+	TestTrue(TEXT("Second update succeeds"), ExposureGrid.Update(RawGrid, Dirty, 0.0, 0.0, RawGrid.GetBehaviourRevision(), ParameterSet));
+	FAEM3CellSnapshot Second;
+	ExposureGrid.GetCellSnapshot(FIntPoint::ZeroValue, Second);
+	TestTrue(TEXT("Travel transient returns to zero"), FMath::IsNearlyZero(Second.TravelExposure, 1.0e-6f));
+	TestTrue(TEXT("Travel peak persists"), FMath::IsNearlyEqual(Second.PeakTravelExposure, First.PeakTravelExposure, 1.0e-6f));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FAEM3SprintTravelTest,
 	"AdaptiveEnv.M3.Exposure.SprintTravelNoDoubleCount",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)

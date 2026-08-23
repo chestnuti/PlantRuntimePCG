@@ -55,6 +55,13 @@ private:
 		double CollectExposure = 0.0;
 		/* Stores the latest normalized weighted combat-event contribution. */
 		double CombatExposure = 0.0;
+		/* Stores per-channel maxima since the last complete M3 reset. */
+		double PeakPassExposure = 0.0;
+		double PeakTravelExposure = 0.0;
+		double PeakDwellExposure = 0.0;
+		double PeakSprintExposure = 0.0;
+		double PeakCollectExposure = 0.0;
+		double PeakCombatExposure = 0.0;
 		/* Stores accumulated and decayed Exposure. */
 		double CurrentExposure = 0.0;
 		/* Stores the latest M1 revision consumed by this Cell. */

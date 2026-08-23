@@ -25,7 +25,9 @@ namespace AEExperimentPrivate
         TEXT("RunId,Condition,Repeat,Seed,TimeSeconds,SimulationStep,CellX,CellY,")
         TEXT("PassCount,TravelDistanceMeters,DwellSeconds,SprintDistanceMeters,CollectEventCount,CombatEventCount,")
         TEXT("FlowX,FlowY,FlowMagnitude,BehaviourRevision,ConfigRevision,")
-        TEXT("PassExposure,TravelExposure,DwellExposure,SprintExposure,CollectExposure,CombatExposure,CurrentExposure,ExposureRevision,")
+        TEXT("PassExposure,TravelExposure,DwellExposure,SprintExposure,CollectExposure,CombatExposure,")
+        TEXT("PeakPassExposure,PeakTravelExposure,PeakDwellExposure,PeakSprintExposure,PeakCollectExposure,PeakCombatExposure,")
+        TEXT("CurrentExposure,ExposureRevision,")
         TEXT("SlopeDegrees,MoistureRatio,ConstraintPressureRatio,HabitatSuitabilityRatio,EnvironmentState,ConstraintRevision,")
         TEXT("EffectiveImpactRatio,DamageRatio,RecoveryRatio,DamageRatePerSimulationHour,RecoveryRatePerSimulationHour,")
         TEXT("SourceExposureRevision,SourceConstraintRevision,ResponseRevision,PathIntensity,PathFlowX,PathFlowY,PathVisualRevision");
@@ -166,22 +168,25 @@ bool AAEExperimentOrchestrator::ValidateAndPrepare()
         return false;
     }
 
-    for (TActorIterator<APlayerReplayManager> It(World); It; ++It)
+    if (RunSpec.bReplayEnabled)
     {
-        ReplayManager = *It;
-        break;
-    }
-    if (ReplayManager == nullptr)
-    {
-        FailExperiment(TEXT("Player Replay Manager is unavailable."));
-        return false;
-    }
+        for (TActorIterator<APlayerReplayManager> It(World); It; ++It)
+        {
+            ReplayManager = *It;
+            break;
+        }
+        if (ReplayManager == nullptr)
+        {
+            FailExperiment(TEXT("Player Replay Manager is unavailable."));
+            return false;
+        }
 
-    ReplayManager->SaveSlotName = RunSpec.ReplaySlotName;
-    if (!ReplayManager->LoadRecording())
-    {
-        FailExperiment(FString::Printf(TEXT("Replay load failed: %s"), *ReplayManager->LastPersistenceError));
-        return false;
+        ReplayManager->SaveSlotName = RunSpec.ReplaySlotName;
+        if (!ReplayManager->LoadRecording())
+        {
+            FailExperiment(FString::Printf(TEXT("Replay load failed: %s"), *ReplayManager->LastPersistenceError));
+            return false;
+        }
     }
     if (RunSpec.Profile != nullptr)
     {
@@ -218,7 +223,9 @@ bool AAEExperimentOrchestrator::ValidateAndPrepare()
     LSystemRows = {AEExperimentPrivate::LSystemHeader};
     PerformanceRows = {AEExperimentPrivate::PerformanceHeader};
     EventRows = {AEExperimentPrivate::EventHeader};
-    AppendEvent(TEXT("Prepared"), FString::Printf(TEXT("ReplaySlot=%s"), *RunSpec.ReplaySlotName));
+    AppendEvent(TEXT("Prepared"), RunSpec.bReplayEnabled
+        ? FString::Printf(TEXT("ReplaySlot=%s"), *RunSpec.ReplaySlotName)
+        : TEXT("ReplayDisabled"));
     return true;
 }
 
@@ -273,6 +280,15 @@ void AAEExperimentOrchestrator::AdvanceState(const float DeltaSeconds)
 {
     if (State == EAEExperimentState::WarmingUp && StateElapsedSeconds >= RunSpec.WarmupSeconds)
     {
+        if (!RunSpec.bReplayEnabled)
+        {
+            State = EAEExperimentState::Recovering;
+            StateElapsedSeconds = 0.0;
+            AppendEvent(TEXT("DwellStarted"));
+            UE_LOG(LogTemp, Display, TEXT("AE_EXP_DWELL_STARTED RunId=%s"), *RunSpec.RunId);
+            return;
+        }
+
         if (!ReplayManager->StartReplay())
         {
             FailExperiment(TEXT("Replay failed to start."));
@@ -356,12 +372,18 @@ void AAEExperimentOrchestrator::CollectSnapshot(const float DeltaSeconds)
 void AAEExperimentOrchestrator::CollectCells()
 {
     TArray<FIntPoint> Coordinates = RunSpec.ObservedCells;
-    if (Coordinates.IsEmpty() && ReplayManager != nullptr && ReplayManager->TargetCharacter != nullptr)
+
+    ACharacter* ObservationCharacter = UGameplayStatics::GetPlayerCharacter(this, 0);
+    if (ObservationCharacter == nullptr && ReplayManager != nullptr)
+    {
+        ObservationCharacter = ReplayManager->TargetCharacter;
+    }
+    if (ObservationCharacter != nullptr)
     {
         FAEBehaviourCellSnapshot AtCharacter;
-        if (Environment->GetBehaviourCellAtWorldLocation(ReplayManager->TargetCharacter->GetActorLocation(), AtCharacter))
+        if (Environment->GetBehaviourCellAtWorldLocation(ObservationCharacter->GetActorLocation(), AtCharacter))
         {
-            Coordinates.Add(AtCharacter.Coordinate);
+            Coordinates.AddUnique(AtCharacter.Coordinate);
         }
     }
 
@@ -380,13 +402,15 @@ void AAEExperimentOrchestrator::CollectCells()
 
         CellRows.Add(FString::Printf(
             TEXT("%s,%s,%d,%d,%.6f,%lld,%d,%d,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%lld,%lld,")
-            TEXT("%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%lld,%.6f,%.6f,%.6f,%.6f,%d,%lld,")
+            TEXT("%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%lld,%.6f,%.6f,%.6f,%.6f,%d,%lld,")
             TEXT("%.6f,%.6f,%.6f,%.6f,%.6f,%lld,%lld,%lld,%.6f,%.6f,%.6f,%lld"),
             *CsvEscape(RunSpec.RunId), *CsvEscape(RunSpec.ConditionId.ToString()), RunSpec.RepeatIndex, RunSpec.Seed,
             Environment->GetBehaviourTimeSeconds(), Environment->GetProcessedBehaviourStepCount(), Coordinate.X, Coordinate.Y,
             M1.PassCount, M1.TravelDistanceMeters, M1.DwellSeconds, M1.SprintDistanceMeters, M1.CollectEventCount, M1.CombatEventCount,
             M1.FlowDirection.X, M1.FlowDirection.Y, M1.FlowMagnitude, Environment->GetBehaviourRevision(), Environment->GetEnvironmentConfigRevision(),
             M3.PassExposure, M3.TravelExposure, M3.DwellExposure, M3.SprintExposure, M3.CollectExposure, M3.CombatExposure,
+            M3.PeakPassExposure, M3.PeakTravelExposure, M3.PeakDwellExposure, M3.PeakSprintExposure,
+            M3.PeakCollectExposure, M3.PeakCombatExposure,
             M3.CurrentExposure, M3.ExposureRevision, M4.SlopeDegrees, M4.MoistureRatio, M4.ConstraintPressureRatio,
             M4.HabitatSuitabilityRatio, static_cast<int32>(M4.State), M4.ConstraintRevision,
             M5.EffectiveImpactRatio, M5.DamageRatio, M5.RecoveryRatio,
@@ -503,6 +527,7 @@ FString AAEExperimentOrchestrator::MakeManifestJson(const FString& Status) const
     Root->SetNumberField(TEXT("repeat"), RunSpec.RepeatIndex);
     Root->SetNumberField(TEXT("seed"), RunSpec.Seed);
     Root->SetStringField(TEXT("replaySlot"), RunSpec.ReplaySlotName);
+    Root->SetBoolField(TEXT("replayEnabled"), RunSpec.bReplayEnabled);
     Root->SetStringField(TEXT("map"), GetWorld() != nullptr ? UGameplayStatics::GetCurrentLevelName(this, true) : FString());
     Root->SetStringField(TEXT("profile"), Environment != nullptr ? Environment->GetActiveEnvironmentProfileId().ToString() : FString());
     Root->SetNumberField(TEXT("configRevision"), Environment != nullptr ? Environment->GetEnvironmentConfigRevision() : 0);

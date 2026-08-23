@@ -51,6 +51,7 @@ bool FAEExperimentRunSpecDefaultsTest::RunTest(const FString& Parameters)
     TestTrue(TEXT("Snapshot interval is positive"), Spec.SnapshotIntervalSeconds > 0.0f);
     TestTrue(TEXT("Default frame rate is non-negative"), Spec.TargetFrameRate >= 0);
     TestEqual(TEXT("Default experiment is E0"), Spec.Experiment, EAEExperimentType::E0);
+    TestTrue(TEXT("Replay is enabled by default"), Spec.bReplayEnabled);
     return true;
 }
 

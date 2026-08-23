@@ -113,6 +113,9 @@ struct ADAPTIVEENVRESEARCHHARNESS_API FAEExperimentRunSpec
     FString ReplaySlotName = TEXT("PlayerReplay");
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Experiment")
+    bool bReplayEnabled = true;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Experiment")
     TObjectPtr<UAEAdaptiveEnvironmentProfile> Profile = nullptr;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Experiment", meta = (ClampMin = "0.0", Units = "s"))

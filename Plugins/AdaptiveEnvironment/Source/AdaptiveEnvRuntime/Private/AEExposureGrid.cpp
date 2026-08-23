@@ -145,6 +145,12 @@ bool FAEExposureGrid::Update(
 				Cell.SprintExposure = 0.0;
 				Cell.CollectExposure = 0.0;
 				Cell.CombatExposure = 0.0;
+				Cell.PeakPassExposure = 0.0;
+				Cell.PeakTravelExposure = 0.0;
+				Cell.PeakDwellExposure = 0.0;
+				Cell.PeakSprintExposure = 0.0;
+				Cell.PeakCollectExposure = 0.0;
+				Cell.PeakCombatExposure = 0.0;
 			}
 			else
 			{
@@ -164,6 +170,12 @@ bool FAEExposureGrid::Update(
 				Cell.SprintExposure = AEExposureGridPrivate::Normalize(DeltaSprint, Parameters.Channel(EAEExposureChannel::Sprint).ReferenceValue);
 				Cell.CollectExposure = AEExposureGridPrivate::Normalize(DeltaCollect, Parameters.Channel(EAEExposureChannel::Collect).ReferenceValue);
 				Cell.CombatExposure = AEExposureGridPrivate::Normalize(DeltaCombat, Parameters.Channel(EAEExposureChannel::Combat).ReferenceValue);
+				Cell.PeakPassExposure = FMath::Max(Cell.PeakPassExposure, Cell.PassExposure);
+				Cell.PeakTravelExposure = FMath::Max(Cell.PeakTravelExposure, Cell.TravelExposure);
+				Cell.PeakDwellExposure = FMath::Max(Cell.PeakDwellExposure, Cell.DwellExposure);
+				Cell.PeakSprintExposure = FMath::Max(Cell.PeakSprintExposure, Cell.SprintExposure);
+				Cell.PeakCollectExposure = FMath::Max(Cell.PeakCollectExposure, Cell.CollectExposure);
+				Cell.PeakCombatExposure = FMath::Max(Cell.PeakCombatExposure, Cell.CombatExposure);
 				const double Increment =
 					Cell.PassExposure * Parameters.Channel(EAEExposureChannel::Pass).Weight
 					+ Cell.TravelExposure * Parameters.Channel(EAEExposureChannel::Travel).Weight
@@ -355,6 +367,12 @@ FAEM3CellSnapshot FAEExposureGrid::MakeSnapshot(const FIntPoint& Coordinate, con
 	Snapshot.SprintExposure = static_cast<float>(Cell.SprintExposure);
 	Snapshot.CollectExposure = static_cast<float>(Cell.CollectExposure);
 	Snapshot.CombatExposure = static_cast<float>(Cell.CombatExposure);
+	Snapshot.PeakPassExposure = static_cast<float>(Cell.PeakPassExposure);
+	Snapshot.PeakTravelExposure = static_cast<float>(Cell.PeakTravelExposure);
+	Snapshot.PeakDwellExposure = static_cast<float>(Cell.PeakDwellExposure);
+	Snapshot.PeakSprintExposure = static_cast<float>(Cell.PeakSprintExposure);
+	Snapshot.PeakCollectExposure = static_cast<float>(Cell.PeakCollectExposure);
+	Snapshot.PeakCombatExposure = static_cast<float>(Cell.PeakCombatExposure);
 	Snapshot.CurrentExposure = static_cast<float>(Cell.CurrentExposure);
 	Snapshot.SourceBehaviourRevision = static_cast<int64>(Cell.SourceBehaviourRevision);
 	Snapshot.ExposureRevision = static_cast<int64>(Cell.ExposureRevision);
